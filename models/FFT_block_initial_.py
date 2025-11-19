@@ -72,7 +72,7 @@ class SEBlock(nn.Module):
         self.avg_pool = nn.AdaptiveAvgPool1d(1)
         self.fc = nn.Sequential(
             nn.Linear(channel, channel // reduction, bias=False),
-            nn.LeakyReLU(negative_slope=0.01, inplace=True),
+            nn.ReLU(inplace=True),
             nn.Linear(channel // reduction, channel, bias=False),
             nn.Sigmoid()
         )
@@ -104,19 +104,7 @@ class Decoder(nn.Module):
         self.within_sub_num = within_sub_num
         self.slf_attn = MultiHeadAttention
         self.fc = nn.Linear(d_model, 1)   
-        # 三层卷积：每层后依次 LayerNorm -> LeakyReLU -> Dropout
-        self.conv1 = nn.Conv1d(in_channel, d_model, kernel_size=7, padding=3)
-        self.norm1 = nn.LayerNorm(d_model)
-        self.act1 = nn.LeakyReLU(negative_slope=0.01, inplace=True)
-        self.drop1 = nn.Dropout(dropout)
-        self.conv2 = nn.Conv1d(d_model, d_model, kernel_size=5, padding=2)
-        self.norm2 = nn.LayerNorm(d_model)
-        self.act2 = nn.LeakyReLU(negative_slope=0.01, inplace=True)
-        self.drop2 = nn.Dropout(dropout)
-        self.conv3 = nn.Conv1d(d_model, d_model, kernel_size=3, padding=1)
-        self.norm3 = nn.LayerNorm(d_model)
-        self.act3 = nn.LeakyReLU(negative_slope=0.01, inplace=True)
-        self.drop3 = nn.Dropout(dropout)
+        self.conv = nn.Conv1d(in_channel, d_model, kernel_size = 7, padding=3)
         self.se = SEBlock(d_model, reduction=16)  # 新增SEBlock
         
         # 添加位置编码层
@@ -128,28 +116,7 @@ class Decoder(nn.Module):
 
     def forward(self, dec_input, sub_id):
 
-        # 三层卷积 + (LayerNorm -> LeakyReLU -> Dropout)
-        x = dec_input.transpose(1, 2)  # [B, C, T]
-        x = self.conv1(x)
-        x = x.transpose(1, 2)          # [B, T, d_model]
-        x = self.norm1(x)
-        x = self.act1(x)
-        x = self.drop1(x)
-        x = x.transpose(1, 2)          # [B, d_model, T]
-
-        x = self.conv2(x)
-        x = x.transpose(1, 2)
-        x = self.norm2(x)
-        x = self.act2(x)
-        x = self.drop2(x)
-        x = x.transpose(1, 2)
-
-        x = self.conv3(x)
-        x = x.transpose(1, 2)
-        x = self.norm3(x)
-        x = self.act3(x)
-        x = self.drop3(x)
-        dec_output = x.transpose(1, 2)  # [B, d_model, T]
+        dec_output = self.conv(dec_input.transpose(1,2))  # [B, d_model, T]
         dec_output = self.se(dec_output)  # 加入通道注意力
         dec_output = dec_output.transpose(1,2)  # [B, T, d_model]
 

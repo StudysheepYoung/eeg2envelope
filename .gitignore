@@ -1,4 +1,5 @@
 test_results
 train.sh
+data
 *.pyc
 __pychche__

@@ -118,7 +118,7 @@ class PositionwiseFeedForward(nn.Module):
         # Pre-norm.
         x = self.layer_norm(x)
         output = x.transpose(1, 2)
-        output = self.w_2(F.relu(self.w_1(output)))
+        output = self.w_2(F.leaky_relu(self.w_1(output), negative_slope=0.01))
         output = output.transpose(1, 2)
         output = self.dropout(output)
         output = output + residual

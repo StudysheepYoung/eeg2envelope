@@ -24,7 +24,7 @@ def pearson_correlation(y_true, y_pred, axis=1):
 
 
 def pearson_loss(y_true, y_pred, axis=1):
-    return -pearson_correlation(y_true, y_pred, axis=axis)
+    return 1-pearson_correlation(y_true, y_pred, axis=axis)
 
 def pearson_metric(y_true, y_pred, axis=1):
     return pearson_correlation(y_true, y_pred, axis=axis)
@@ -33,3 +33,19 @@ def l1_loss(y_true, y_pred, axis=1):
     l1_dist = torch.abs(y_true - y_pred)
     l1_loss = torch.mean(l1_dist, axis = axis, keepdim=False)
     return l1_loss
+
+def mse_loss(y_true, y_pred, axis=1):
+    """
+    计算均方误差损失
+    
+    参数:
+    y_true: 真实值
+    y_pred: 预测值
+    axis: 计算均值的维度
+    
+    返回:
+    mse: 均方误差
+    """
+    squared_diff = (y_true - y_pred)**2
+    mse = torch.mean(squared_diff, dim=axis, keepdim=False)
+    return mse
