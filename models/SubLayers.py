@@ -4,6 +4,12 @@ import torch.nn.functional as F
 import numpy as np
 import pdb
 
+
+class Swish(nn.Module):
+    """Swish activation function: x * sigmoid(x)"""
+    def forward(self, x):
+        return x * torch.sigmoid(x)
+
 class ScaledDotProductAttention(nn.Module):
 
     def __init__(self, temperature, attn_dropout=0.1):
@@ -124,3 +130,61 @@ class PositionwiseFeedForward(nn.Module):
         output = output + residual
 
         return output
+
+
+class MacaronStyleFeedForward(nn.Module):
+    """
+    Macaron-style Feed-Forward Network for Conformer
+    Applies 0.5 scaling factor for use in sandwich structure
+    Uses two residual connections for better gradient flow
+
+    Args:
+        d_in: input dimension
+        d_hid: hidden dimension
+        dropout: dropout rate
+        use_swish: whether to use Swish activation (default: False, uses LeakyReLU)
+    """
+    def __init__(self, d_in, d_hid, dropout=0.1, use_swish=False):
+        super().__init__()
+
+        self.w_1 = nn.Linear(d_in, d_hid)
+        self.w_2 = nn.Linear(d_hid, d_in)
+        self.layer_norm_1 = nn.LayerNorm(d_in)
+        self.layer_norm_2 = nn.LayerNorm(d_in)
+        self.dropout = nn.Dropout(dropout)
+
+        # Choose activation function
+        if use_swish:
+            self.activation = Swish()
+        else:
+            self.activation = nn.LeakyReLU(negative_slope=0.01)
+
+        # Xavier initialization
+        nn.init.xavier_uniform_(self.w_1.weight)
+        nn.init.xavier_uniform_(self.w_2.weight)
+
+    def forward(self, x):
+        """
+        Args:
+            x: [batch_size, seq_len, d_in]
+        Returns:
+            out: [batch_size, seq_len, d_in]
+        """
+        # First residual connection
+        residual_1 = x
+        x = self.layer_norm_1(x)
+        x = self.w_1(x)
+        x = self.activation(x)
+        x = self.dropout(x)
+
+        # Second residual connection
+        residual_2 = x
+        x = self.w_2(x)
+        x = self.dropout(x)
+        x = x + residual_2
+        x = self.layer_norm_2(x)
+
+        # Macaron-style: scale by 0.5
+        x = 0.5 * x
+
+        return x + residual_1

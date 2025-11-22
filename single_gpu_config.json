@@ -21,5 +21,32 @@
         "experiment_folder": "single_gpu_experiment",
         "seed": 42,
         "workers": 4
+    },
+    "conformer_config": {
+        "gpu": 0,
+        "epoch": 100,
+        "batch_size": 64,
+        "win_len": 10,
+        "sample_rate": 64,
+        "in_channel": 64,
+        "d_model": 256,
+        "d_inner": 1024,
+        "n_head": 4,
+        "n_layers": 8,
+        "learning_rate": 0.0001,
+        "dropout": 0.3,
+        "lamda": 1.0,
+        "conv_kernel_size": 31,
+        "use_relative_pos": true,
+        "use_macaron_ffn": true,
+        "use_sinusoidal_pos": true,
+        "writing_interval": 10,
+        "saving_interval": 50,
+        "eval_interval": 10,
+        "dataset_folder": "/RAID5/projects/likeyang/happy/HappyQuokka_system_for_EEG_Challenge/data",
+        "split_folder": "split_data",
+        "experiment_folder": "conformer_experiment",
+        "seed": 42,
+        "workers": 4
     }
 } 
