@@ -78,12 +78,10 @@ class GatedResidual(nn.Module):
     def __init__(self, d_model, init_gate_bias=2.0):
         super().__init__()
         # 门控网络：学习一个0-1的权重
-        self.gate = nn.Sequential(
-            nn.Linear(d_model, d_model // 4),
-            nn.ReLU(),
-            nn.Linear(d_model // 4, d_model),
-            nn.Sigmoid()
-        )
+        # 使用独立的层以保持与旧 checkpoint 的兼容性
+        self.gate_layer1 = nn.Linear(d_model, d_model // 4)
+        self.gate_layer2 = nn.Linear(d_model // 4, d_model)
+        self.activation = nn.ReLU()
 
     def forward(self, x, residual):
         """
@@ -98,8 +96,11 @@ class GatedResidual(nn.Module):
         global_feat = x.mean(dim=1)
 
         # 门控计算
-        gate = self.gate(global_feat)  # [B, d_model]
-        gate = gate.unsqueeze(1)       # [B, 1, d_model]
+        gate = self.gate_layer1(global_feat)
+        gate = self.activation(gate)
+        gate = self.gate_layer2(gate)
+        gate = torch.sigmoid(gate)  # [B, d_model]
+        gate = gate.unsqueeze(1)    # [B, 1, d_model]
 
         # 门控融合
         output = gate * x + (1 - gate) * residual
@@ -193,18 +194,19 @@ class Decoder(nn.Module):
         else:
             self.fc = nn.Linear(d_model, 1)
 
-        # 三层卷积：每层后依次 LayerNorm -> LeakyReLU -> Dropout
-        self.conv1 = nn.Conv1d(in_channel, d_model, kernel_size=7, padding=3)
+        # 三层卷积：使用膨胀卷积保留高频信息
+        # kernel=3 配合不同 dilation 实现多尺度感受野，同时保留细节
+        self.conv1 = nn.Conv1d(in_channel, d_model, kernel_size=3, padding=1, dilation=1)
         self.norm1 = nn.LayerNorm(d_model)
         self.act1 = nn.LeakyReLU(negative_slope=0.01, inplace=True)
         self.drop1 = nn.Dropout(dropout)
 
-        self.conv2 = nn.Conv1d(d_model, d_model, kernel_size=5, padding=2)
+        self.conv2 = nn.Conv1d(d_model, d_model, kernel_size=3, padding=2, dilation=2)
         self.norm2 = nn.LayerNorm(d_model)
         self.act2 = nn.LeakyReLU(negative_slope=0.01, inplace=True)
         self.drop2 = nn.Dropout(dropout)
 
-        self.conv3 = nn.Conv1d(d_model, d_model, kernel_size=3, padding=1)
+        self.conv3 = nn.Conv1d(d_model, d_model, kernel_size=3, padding=4, dilation=4)
         self.norm3 = nn.LayerNorm(d_model)
         self.act3 = nn.LeakyReLU(negative_slope=0.01, inplace=True)
         self.drop3 = nn.Dropout(dropout)

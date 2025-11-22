@@ -22,9 +22,9 @@ from torch.utils.data import DistributedSampler
 import torch.backends.cudnn as cudnn
 from util.utils import get_writer, save_checkpoint
 from util.logger import TrainingLogger
-from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from models.FFT_block_conformer_v2 import Decoder  # 使用改进版模型
-from util.cal_pearson import l1_loss, mse_loss, pearson_loss, pearson_metric
+from util.cal_pearson import l1_loss, mse_loss, pearson_loss, pearson_metric, multi_scale_pearson_loss
 from util.dataset import RegressionDataset
 import time
 import math
@@ -45,10 +45,10 @@ parser.add_argument('--in_channel', type=int, default=64, help="channel of the i
 parser.add_argument('--d_model', type=int, default=256)
 parser.add_argument('--d_inner', type=int, default=1024)
 parser.add_argument('--n_head', type=int, default=4)
-parser.add_argument('--n_layers', type=int, default=8)
+parser.add_argument('--n_layers', type=int, default=4)  # 从 8 减少到 4，避免过度平滑
 parser.add_argument('--fft_conv1d_kernel', type=tuple, default=(9, 1))
 parser.add_argument('--fft_conv1d_padding', type=tuple, default=(4, 0))
-parser.add_argument('--learning_rate', type=float, default=0.0001)
+parser.add_argument('--learning_rate', type=float, default=5e-5)  # 从 1e-4 降低到 5e-5
 parser.add_argument('--dropout', type=float, default=0.3)
 parser.add_argument('--lamda', type=float, default=1)
 parser.add_argument('--writing_interval', type=int, default=10)
@@ -58,7 +58,7 @@ parser.add_argument('--viz_sample_idx', type=int, default=0, help='fixed test sa
 parser.add_argument('--grad_log_interval', type=int, default=100, help='gradient logging interval (steps)')
 
 # Conformer-specific parameters
-parser.add_argument('--conv_kernel_size', type=int, default=31, help='kernel size for Conformer convolution module')
+parser.add_argument('--conv_kernel_size', type=int, default=15, help='kernel size for Conformer convolution module (reduced from 31 to preserve high-freq)')
 parser.add_argument('--use_relative_pos', type=bool, default=True, help='use relative positional encoding in attention')
 parser.add_argument('--use_macaron_ffn', type=bool, default=True, help='use Macaron-style FFN in Conformer')
 parser.add_argument('--use_sinusoidal_pos', type=bool, default=True, help='use additional sinusoidal positional encoding')
@@ -66,14 +66,14 @@ parser.add_argument('--use_sinusoidal_pos', type=bool, default=True, help='use a
 # ============ v2 改进参数 ============
 parser.add_argument('--use_gated_residual', type=bool, default=True, help='use gated residual connection')
 parser.add_argument('--use_mlp_head', type=bool, default=True, help='use MLP output head instead of single linear')
-parser.add_argument('--gradient_scale', type=float, default=2.0, help='gradient scaling factor for Conformer layers')
-# LLRD (Layer-wise Learning Rate Decay) 参数
-parser.add_argument('--use_llrd', type=bool, default=True, help='use layer-wise learning rate decay')
+parser.add_argument('--gradient_scale', type=float, default=1.0, help='gradient scaling factor for Conformer layers (disabled: 1.0)')
+# LLRD (Layer-wise Learning Rate Decay) 参数 - 已禁用
+parser.add_argument('--use_llrd', type=bool, default=False, help='use layer-wise learning rate decay (disabled for simplicity)')
 parser.add_argument('--llrd_front_scale', type=float, default=3.0, help='LR scale for front layers (CNN, SE, early Conformer)')
 parser.add_argument('--llrd_back_scale', type=float, default=2.0, help='LR scale for back layers (late Conformer, gated_residual)')
 parser.add_argument('--llrd_output_scale', type=float, default=0.5, help='LR scale for output head')
-# 输出层梯度缩放
-parser.add_argument('--output_grad_scale', type=float, default=0.5, help='scale factor for output head gradients after backward')
+# 输出层梯度缩放 - 已禁用
+parser.add_argument('--output_grad_scale', type=float, default=1.0, help='scale factor for output head gradients after backward (disabled: 1.0)')
 # ===================================
 
 parser.add_argument('--dataset_folder', type=str, default="/RAID5/projects/likeyang/happy/HappyQuokka_system_for_EEG_Challenge/data", help='write down your absolute path of dataset folder')
@@ -352,7 +352,9 @@ def main():
                                      eps=1e-09)
     # ==============================================
 
-    scheduler = StepLR(optimizer, step_size=50, gamma=0.9)
+    # 使用 CosineAnnealingWarmRestarts 替代 StepLR
+    # T_0: 第一次重启的 epoch 数，T_mult: 每次重启后周期倍数，eta_min: 最小学习率
+    scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=100, T_mult=2, eta_min=1e-6)
 
     # Create data loaders
     train_dataloader = create_dataloader('train', data_folder, features, input_length, args, use_ddp, local_rank)
@@ -391,10 +393,13 @@ def main():
             sub_id = sub_id.to(device)
             outputs = model(inputs, sub_id)
 
-            l_p = pearson_loss(outputs, labels)
-            l_mse = mse_loss(outputs, labels)
-            loss = l_mse + args.lamda * (l_p ** 2)
+            # 使用多尺度 Pearson Loss（移除 MSE，避免预测均值）
+            loss = multi_scale_pearson_loss(outputs, labels, scales=[32, 64, 128])
             loss = loss.mean()
+
+            # 仅用于日志记录
+            with torch.no_grad():
+                l_p = pearson_loss(outputs, labels)
             loss.backward()
 
             # 策略4：缩放输出层梯度
@@ -431,7 +436,7 @@ def main():
                     total_steps=iter_per_epoch,
                     loss_dict={
                         'total': loss.item(),
-                        'mse': l_mse.mean().item(),
+                        'multi_scale_pearson': loss.item(),
                         'pearson': l_p.mean().item()
                     },
                     lr=learning_rate,

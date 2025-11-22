@@ -85,15 +85,15 @@ def load_model_and_data(checkpoint_path):
 
     model.eval()
 
-    # 加载验证数据
+    # 加载测试数据
     features = ["eeg", "envelope"]
-    val_files = [x for x in glob.glob(os.path.join(args.data_folder, "val_-_*"))
+    test_files = [x for x in glob.glob(os.path.join(args.data_folder, "test_-_*"))
                  if os.path.basename(x).split("_-_")[-1].split(".")[0] in features]
 
-    val_dataset = RegressionDataset(val_files, 640, 64, 'val', g_con=True)
-    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=1, shuffle=False)
+    test_dataset = RegressionDataset(test_files, 640, 64, 'test', g_con=True)
+    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False)
 
-    return model, val_loader, model_args
+    return model, test_loader, model_args
 
 
 def analyze_feature_variance(model, val_loader, num_samples=10):
@@ -295,8 +295,8 @@ def analyze_weights(model):
         print(f"  FC层 bias: {bias_val:.6f}")
 
 
-def analyze_predictions(model, val_loader, num_samples=50):
-    """分析模型预测分布"""
+def analyze_predictions(model, val_loader, num_samples=None):
+    """分析模型预测分布 (使用全部数据，与训练脚本一致)"""
     print("\n" + "="*60)
     print("3. 预测分布分析")
     print("="*60)
@@ -307,7 +307,7 @@ def analyze_predictions(model, val_loader, num_samples=50):
 
     with torch.no_grad():
         for i, (eeg, envelope, sub_id) in enumerate(val_loader):
-            if i >= num_samples:
+            if num_samples is not None and i >= num_samples:
                 break
 
             eeg = eeg.squeeze(0).to(device)
@@ -319,8 +319,10 @@ def analyze_predictions(model, val_loader, num_samples=50):
             all_preds.append(pred.cpu())
             all_labels.append(envelope.cpu())
 
-            # 计算 Pearson
-            pearson = pearson_correlation(envelope, pred, axis=1).mean().item()
+            # 计算 Pearson (与训练脚本一致: pearson_metric(outputs, labels))
+            # pearson_metric 内部调用 pearson_correlation(y_true, y_pred)
+            from util.cal_pearson import pearson_metric
+            pearson = pearson_metric(pred, envelope, axis=1).mean().item()
             all_pearsons.append(pearson)
 
     preds = torch.cat(all_preds, dim=0)
@@ -358,7 +360,7 @@ def analyze_predictions(model, val_loader, num_samples=50):
     return preds, labels, all_pearsons
 
 
-def test_linear_baseline(val_loader, num_samples=50):
+def test_linear_baseline(val_loader, num_samples=None):
     """测试简单线性模型作为基线"""
     print("\n" + "="*60)
     print("4. 线性基线测试")
@@ -369,22 +371,27 @@ def test_linear_baseline(val_loader, num_samples=50):
     all_envelope = []
 
     for i, (eeg, envelope, sub_id) in enumerate(val_loader):
-        if i >= num_samples:
+        if num_samples is not None and i >= num_samples:
             break
 
-        eeg = eeg.squeeze(0)  # [T, 64]
-        envelope = envelope.squeeze(0)  # [T, 1]
+        eeg = eeg.squeeze(0)  # [N, T, 64] or [T, 64]
+        envelope = envelope.squeeze(0)  # [N, T, 1] or [T, 1]
+
+        # 展平为 2D
+        if eeg.dim() == 3:
+            eeg = eeg.reshape(-1, eeg.shape[-1])  # [N*T, 64]
+            envelope = envelope.reshape(-1, envelope.shape[-1])  # [N*T, 1]
 
         all_eeg.append(eeg)
         all_envelope.append(envelope)
 
-    eeg_data = torch.cat(all_eeg, dim=0)  # [N*T, 64]
-    envelope_data = torch.cat(all_envelope, dim=0)  # [N*T, 1]
+    eeg_data = torch.cat(all_eeg, dim=0)  # [total, 64]
+    envelope_data = torch.cat(all_envelope, dim=0)  # [total, 1]
 
     # 简单线性回归: EEG[t] -> Envelope[t]
     # 使用最小二乘解
     X = eeg_data.numpy()
-    y = envelope_data.numpy()
+    y = envelope_data.numpy().flatten()
 
     # 添加 bias 项
     X_bias = np.hstack([X, np.ones((X.shape[0], 1))])
@@ -531,8 +538,8 @@ def main():
     # 运行诊断
     analyze_feature_variance(model, val_loader)
     analyze_weights(model)
-    analyze_predictions(model, val_loader)
-    test_linear_baseline(val_loader)
+    analyze_predictions(model, val_loader, num_samples=None)  # 使用全部数据
+    test_linear_baseline(val_loader, num_samples=None)  # 使用全部数据
     analyze_gate_values(model, val_loader)
 
     print("\n" + "="*60)
