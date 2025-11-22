@@ -67,6 +67,13 @@ parser.add_argument('--use_sinusoidal_pos', type=bool, default=True, help='use a
 parser.add_argument('--use_gated_residual', type=bool, default=True, help='use gated residual connection')
 parser.add_argument('--use_mlp_head', type=bool, default=True, help='use MLP output head instead of single linear')
 parser.add_argument('--gradient_scale', type=float, default=2.0, help='gradient scaling factor for Conformer layers')
+# LLRD (Layer-wise Learning Rate Decay) 参数
+parser.add_argument('--use_llrd', type=bool, default=True, help='use layer-wise learning rate decay')
+parser.add_argument('--llrd_front_scale', type=float, default=3.0, help='LR scale for front layers (CNN, SE, early Conformer)')
+parser.add_argument('--llrd_back_scale', type=float, default=2.0, help='LR scale for back layers (late Conformer, gated_residual)')
+parser.add_argument('--llrd_output_scale', type=float, default=0.5, help='LR scale for output head')
+# 输出层梯度缩放
+parser.add_argument('--output_grad_scale', type=float, default=0.5, help='scale factor for output head gradients after backward')
 # ===================================
 
 parser.add_argument('--dataset_folder', type=str, default="/RAID5/projects/likeyang/happy/HappyQuokka_system_for_EEG_Challenge/data", help='write down your absolute path of dataset folder')
@@ -162,6 +169,105 @@ def create_dataloader(split_name, data_folder, features, input_length, args, use
     )
 
 
+def get_llrd_param_groups(model, base_lr, front_scale, back_scale, output_scale, n_layers):
+    """
+    获取Layer-wise Learning Rate Decay参数组
+
+    分层策略：
+    - 前层（CNN, SE, 位置编码, Conformer前半）：base_lr * front_scale
+    - 后层（Conformer后半, gated_residual）：base_lr * back_scale
+    - 输出层（output_head/fc）：base_lr * output_scale
+
+    Args:
+        model: 模型
+        base_lr: 基础学习率
+        front_scale: 前层学习率倍率
+        back_scale: 后层学习率倍率
+        output_scale: 输出层学习率倍率
+        n_layers: Conformer层数
+
+    Returns:
+        param_groups: 参数组列表
+    """
+    # 定义层的划分
+    front_layers = ['conv1', 'conv2', 'conv3', 'norm1', 'norm2', 'norm3',
+                    'act1', 'act2', 'act3', 'drop1', 'drop2', 'drop3',
+                    'se', 'sub_proj', 'pos_encoder']
+    output_layers = ['output_head', 'fc']
+
+    # Conformer层的划分：前半为front，后半为back
+    mid_layer = n_layers // 2  # 例如8层时，0-3为前半，4-7为后半
+
+    front_params = []
+    back_params = []
+    output_params = []
+
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+
+        # 判断参数属于哪一层
+        is_front = any(layer in name for layer in front_layers)
+        is_output = any(layer in name for layer in output_layers)
+
+        # 检查是否是Conformer层
+        is_conformer_layer = 'layer_stack' in name
+        if is_conformer_layer:
+            # 提取层号：layer_stack.0.xxx -> 0
+            try:
+                layer_idx = int(name.split('layer_stack.')[1].split('.')[0])
+                if layer_idx < mid_layer:
+                    is_front = True
+                else:
+                    is_front = False
+            except (ValueError, IndexError):
+                is_front = False
+
+        # 检查是否是gated_residual
+        is_gated_residual = 'gated_residual' in name
+
+        if is_output:
+            output_params.append(param)
+        elif is_front:
+            front_params.append(param)
+        elif is_gated_residual or (is_conformer_layer and not is_front):
+            back_params.append(param)
+        else:
+            # 默认归为back层
+            back_params.append(param)
+
+    param_groups = [
+        {'params': front_params, 'lr': base_lr * front_scale, 'name': 'front_layers'},
+        {'params': back_params, 'lr': base_lr * back_scale, 'name': 'back_layers'},
+        {'params': output_params, 'lr': base_lr * output_scale, 'name': 'output_layers'}
+    ]
+
+    return param_groups
+
+
+def scale_output_gradients(model, scale, use_ddp, local_rank):
+    """
+    缩放输出层的梯度
+
+    在 loss.backward() 之后调用，用于降低输出层梯度的幅度，
+    避免输出层梯度过大导致前层学习不足。
+
+    Args:
+        model: 模型
+        scale: 缩放因子 (小于1表示缩小梯度)
+        use_ddp: 是否使用分布式训练
+        local_rank: 本地rank
+    """
+    base_model = model.module if use_ddp and local_rank != -1 else model
+
+    # 定义输出层
+    output_layers = ['output_head', 'fc']
+
+    for name, param in base_model.named_parameters():
+        if param.grad is not None and any(layer in name for layer in output_layers):
+            param.grad.data.mul_(scale)
+
+
 def main():
     # ============ 使用改进版 Conformer 模型 ============
     model = Decoder(
@@ -219,10 +325,33 @@ def main():
     if use_ddp and local_rank != -1:
         model = DDP(model, device_ids=[local_rank], output_device=local_rank)
 
-    optimizer = torch.optim.Adam(model.parameters(),
-                                 lr=args.learning_rate,
-                                 betas=(0.9, 0.98),
-                                 eps=1e-09)
+    # ============ 优化器设置 (支持LLRD) ============
+    if args.use_llrd:
+        # 使用Layer-wise Learning Rate Decay
+        # 注意：DDP模型需要使用model.module来获取参数
+        base_model = model.module if use_ddp and local_rank != -1 else model
+        param_groups = get_llrd_param_groups(
+            base_model,
+            args.learning_rate,
+            args.llrd_front_scale,
+            args.llrd_back_scale,
+            args.llrd_output_scale,
+            args.n_layers
+        )
+        optimizer = torch.optim.Adam(param_groups, betas=(0.9, 0.98), eps=1e-09)
+
+        if is_main_process:
+            print(f"\n【LLRD 配置】:")
+            for group in param_groups:
+                print(f"  - {group['name']}: lr={group['lr']:.6f} ({len(group['params'])} params)")
+    else:
+        # 使用统一学习率
+        optimizer = torch.optim.Adam(model.parameters(),
+                                     lr=args.learning_rate,
+                                     betas=(0.9, 0.98),
+                                     eps=1e-09)
+    # ==============================================
+
     scheduler = StepLR(optimizer, step_size=50, gamma=0.9)
 
     # Create data loaders
@@ -267,6 +396,10 @@ def main():
             loss = l_mse + args.lamda * (l_p ** 2)
             loss = loss.mean()
             loss.backward()
+
+            # 策略4：缩放输出层梯度
+            if args.output_grad_scale != 1.0:
+                scale_output_gradients(model, args.output_grad_scale, use_ddp, local_rank)
 
             # Log gradient information
             if global_step % args.grad_log_interval == 0:

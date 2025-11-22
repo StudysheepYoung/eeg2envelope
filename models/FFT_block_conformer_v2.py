@@ -74,32 +74,56 @@ class GatedResidual(nn.Module):
     自适应学习跳跃连接的权重，让网络决定是否使用Conformer的输出
 
     output = gate * conformer_output + (1 - gate) * input
+
+    注意：
+    - x (Conformer输出) 已经被 ConformerBlock 最后的 LayerNorm 归一化
+    - residual (Conformer输入) 未归一化，需要 LayerNorm
+    - 输出后面有 ImprovedOutputHead 的 LayerNorm，无需再归一化
     """
-    def __init__(self, d_model):
+    def __init__(self, d_model, init_gate_bias=2.0):
         super().__init__()
+
+        # 只需归一化 residual（x 已经被 ConformerBlock 归一化）
+        self.norm_residual = nn.LayerNorm(d_model)
+
         # 门控网络：学习一个0-1的权重
-        self.gate_proj = nn.Sequential(
-            nn.Linear(d_model, d_model // 4),
-            nn.ReLU(),
-            nn.Linear(d_model // 4, d_model),
-            nn.Sigmoid()
-        )
+        self.gate_layer1 = nn.Linear(d_model, d_model // 4)
+        self.gate_layer2 = nn.Linear(d_model // 4, d_model)
+        self.activation = nn.ReLU()
+
+        # 关键改进：设置第二层的bias初始值为正数
+        # sigmoid(2.0) ≈ 0.88，让网络初始时更信任Conformer输出
+        nn.init.constant_(self.gate_layer2.bias, init_gate_bias)
+
+        # 第一层使用Xavier初始化
+        nn.init.xavier_uniform_(self.gate_layer1.weight)
+        nn.init.xavier_uniform_(self.gate_layer2.weight)
 
     def forward(self, x, residual):
         """
         Args:
-            x: Conformer的输出 [B, T, d_model]
-            residual: Conformer的输入 [B, T, d_model]
+            x: Conformer的输出 [B, T, d_model] (已被ConformerBlock归一化)
+            residual: Conformer的输入 [B, T, d_model] (未归一化)
         Returns:
             门控融合后的输出 [B, T, d_model]
         """
-        # 计算全局特征用于门控（使用平均池化）
+        # 只归一化 residual，x 已经被 ConformerBlock 归一化
+        residual_normed = self.norm_residual(residual)
+
+        # 计算全局特征用于门控
         # [B, T, d_model] -> [B, d_model]
         global_feat = x.mean(dim=1)
-        gate = self.gate_proj(global_feat).unsqueeze(1)  # [B, 1, d_model]
+
+        # 门控计算
+        gate = self.gate_layer1(global_feat)
+        gate = self.activation(gate)
+        gate = self.gate_layer2(gate)
+        gate = torch.sigmoid(gate)  # [B, d_model]
+        gate = gate.unsqueeze(1)    # [B, 1, d_model]
 
         # 门控融合
-        output = gate * x + (1 - gate) * residual
+        output = gate * x + (1 - gate) * residual_normed
+
         return output
 
 
@@ -294,17 +318,17 @@ class Decoder(nn.Module):
         for conformer_layer in self.layer_stack:
             output = conformer_layer(output)
 
-        # 梯度缩放：帮助前层获得更大梯度
-        if self.gradient_scale != 1.0 and self.training:
-            # 使用自定义autograd函数进行梯度缩放
-            output = GradientScaleFunction.apply(output, self.gradient_scale)
-
         # 门控残差连接 or 简单残差
         if self.use_gated_residual:
             output = self.gated_residual(output, conformer_input)
         else:
             # 简单的残差连接
             output = output + conformer_input
+
+        # 梯度缩放：移到门控残差之后，让前层获得更直接的梯度放大
+        # 这样梯度放大作用于整个融合后的输出，不会被门控稀释
+        if self.gradient_scale != 1.0 and self.training:
+            output = GradientScaleFunction.apply(output, self.gradient_scale)
         # ================================================
 
         # 输出层：MLP头 or 单层线性
