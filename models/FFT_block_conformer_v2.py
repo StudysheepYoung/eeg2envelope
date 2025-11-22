@@ -74,56 +74,35 @@ class GatedResidual(nn.Module):
     自适应学习跳跃连接的权重，让网络决定是否使用Conformer的输出
 
     output = gate * conformer_output + (1 - gate) * input
-
-    注意：
-    - x (Conformer输出) 已经被 ConformerBlock 最后的 LayerNorm 归一化
-    - residual (Conformer输入) 未归一化，需要 LayerNorm
-    - 输出后面有 ImprovedOutputHead 的 LayerNorm，无需再归一化
     """
     def __init__(self, d_model, init_gate_bias=2.0):
         super().__init__()
-
-        # 只需归一化 residual（x 已经被 ConformerBlock 归一化）
-        self.norm_residual = nn.LayerNorm(d_model)
-
         # 门控网络：学习一个0-1的权重
-        self.gate_layer1 = nn.Linear(d_model, d_model // 4)
-        self.gate_layer2 = nn.Linear(d_model // 4, d_model)
-        self.activation = nn.ReLU()
-
-        # 关键改进：设置第二层的bias初始值为正数
-        # sigmoid(2.0) ≈ 0.88，让网络初始时更信任Conformer输出
-        nn.init.constant_(self.gate_layer2.bias, init_gate_bias)
-
-        # 第一层使用Xavier初始化
-        nn.init.xavier_uniform_(self.gate_layer1.weight)
-        nn.init.xavier_uniform_(self.gate_layer2.weight)
+        self.gate = nn.Sequential(
+            nn.Linear(d_model, d_model // 4),
+            nn.ReLU(),
+            nn.Linear(d_model // 4, d_model),
+            nn.Sigmoid()
+        )
 
     def forward(self, x, residual):
         """
         Args:
-            x: Conformer的输出 [B, T, d_model] (已被ConformerBlock归一化)
-            residual: Conformer的输入 [B, T, d_model] (未归一化)
+            x: Conformer的输出 [B, T, d_model]
+            residual: Conformer的输入 [B, T, d_model]
         Returns:
             门控融合后的输出 [B, T, d_model]
         """
-        # 只归一化 residual，x 已经被 ConformerBlock 归一化
-        residual_normed = self.norm_residual(residual)
-
-        # 计算全局特征用于门控
+        # 计算全局特征用于门控（使用平均池化）
         # [B, T, d_model] -> [B, d_model]
         global_feat = x.mean(dim=1)
 
         # 门控计算
-        gate = self.gate_layer1(global_feat)
-        gate = self.activation(gate)
-        gate = self.gate_layer2(gate)
-        gate = torch.sigmoid(gate)  # [B, d_model]
-        gate = gate.unsqueeze(1)    # [B, 1, d_model]
+        gate = self.gate(global_feat)  # [B, d_model]
+        gate = gate.unsqueeze(1)       # [B, 1, d_model]
 
         # 门控融合
-        output = gate * x + (1 - gate) * residual_normed
-
+        output = gate * x + (1 - gate) * residual
         return output
 
 
