@@ -194,19 +194,18 @@ class Decoder(nn.Module):
         else:
             self.fc = nn.Linear(d_model, 1)
 
-        # 三层卷积：使用膨胀卷积保留高频信息
-        # kernel=3 配合不同 dilation 实现多尺度感受野，同时保留细节
-        self.conv1 = nn.Conv1d(in_channel, d_model, kernel_size=3, padding=1, dilation=1)
+        # 三层卷积：每层后依次 LayerNorm -> LeakyReLU -> Dropout
+        self.conv1 = nn.Conv1d(in_channel, d_model, kernel_size=7, padding=3)
         self.norm1 = nn.LayerNorm(d_model)
         self.act1 = nn.LeakyReLU(negative_slope=0.01, inplace=True)
         self.drop1 = nn.Dropout(dropout)
 
-        self.conv2 = nn.Conv1d(d_model, d_model, kernel_size=3, padding=2, dilation=2)
+        self.conv2 = nn.Conv1d(d_model, d_model, kernel_size=5, padding=2)
         self.norm2 = nn.LayerNorm(d_model)
         self.act2 = nn.LeakyReLU(negative_slope=0.01, inplace=True)
         self.drop2 = nn.Dropout(dropout)
 
-        self.conv3 = nn.Conv1d(d_model, d_model, kernel_size=3, padding=4, dilation=4)
+        self.conv3 = nn.Conv1d(d_model, d_model, kernel_size=3, padding=1)
         self.norm3 = nn.LayerNorm(d_model)
         self.act3 = nn.LeakyReLU(negative_slope=0.01, inplace=True)
         self.drop3 = nn.Dropout(dropout)
