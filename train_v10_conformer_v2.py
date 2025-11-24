@@ -15,6 +15,7 @@ import glob
 import os
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import argparse
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -88,7 +89,7 @@ parser.add_argument('--workers', default=4, type=int, help='number of data loadi
 parser.add_argument('--use_amp', action='store_true', help='use automatic mixed precision training')
 
 # Data augmentation
-parser.add_argument('--windows_per_sample', type=int, default=10, help='number of windows sampled per sample in one epoch')
+parser.add_argument('--windows_per_sample', type=int, default=20, help='number of windows sampled per sample in one epoch')
 
 args = parser.parse_args()
 
@@ -268,6 +269,48 @@ def scale_output_gradients(model, scale, use_ddp, local_rank):
             param.grad.data.mul_(scale)
 
 
+def multi_scale_pearson_metric(y_pred, y_true, scales=[4, 8, 16, 32], axis=1):
+    """
+    计算多尺度 Pearson 相关系数（用于评估）
+
+    参数:
+    y_pred: 预测值 [B, T, C]
+    y_true: 真实值 [B, T, C]
+    scales: 下采样尺度列表
+    axis: 计算 Pearson 的维度（默认为时间维度 axis=1）
+
+    返回:
+    metrics_dict: 包含每个尺度的 Pearson 系数的字典
+    """
+    import torch.nn.functional as F
+
+    metrics = {}
+
+    # 原始尺度的 Pearson 系数
+    metrics['pearson_scale_1'] = pearson_metric(y_true, y_pred, axis=axis).mean()
+
+    # 对于每个尺度
+    for scale in scales:
+        if y_pred.shape[axis] >= scale:
+            # 需要转置以使用 avg_pool1d (需要 [B, C, T] 格式)
+            pred_transposed = y_pred.transpose(1, 2)  # [B, 1, T]
+            true_transposed = y_true.transpose(1, 2)  # [B, 1, T]
+
+            # 平均池化降采样
+            pred_pooled = F.avg_pool1d(pred_transposed, kernel_size=scale, stride=scale)
+            true_pooled = F.avg_pool1d(true_transposed, kernel_size=scale, stride=scale)
+
+            # 转回 [B, T', 1] 格式
+            pred_pooled = pred_pooled.transpose(1, 2)
+            true_pooled = true_pooled.transpose(1, 2)
+
+            # 计算这个尺度的 Pearson 系数
+            scale_metric = pearson_metric(true_pooled, pred_pooled, axis=axis).mean()
+            metrics[f'pearson_scale_{scale}'] = scale_metric
+
+    return metrics
+
+
 def main():
     # ============ 使用改进版 Conformer 模型 ============
     model = Decoder(
@@ -418,24 +461,27 @@ def main():
             # l_var_ratio = variance_ratio_loss(labels, outputs)
             # loss = l_pearson.mean() + 0.5 * l_var_ratio.mean()
 
-            # V5: SI-SDR Loss（最推荐方案）
-            # 优势：尺度不变，通过投影自动找到最佳幅度缩放
-            #       单一损失同时优化相关性和幅度，无需手动调参
-            #       语音领域广泛验证有效，数学优雅
-            # 预期：Val Pearson ~0.222，方差比 ~1.00
-            loss = si_sdr_loss(outputs, labels)
-            loss = loss.mean()
+            # V6: 动态权重MSE策略
+            # 训练初期用MSE稳定训练，后期降低MSE权重避免梯度冲突
+            # 优势：初期快速收敛减少数值偏差，后期主要优化Pearson相关性
+            # epoch_ratio = epoch / args.epoch  # 当前epoch占总epoch的比例
+            # mse_weight = max(0.05, 1.0 - epoch_ratio)  # 从1.0逐渐降到0.05
+            # l_pearson = multi_scale_pearson_loss(outputs, labels, scales=[4, 8, 16, 32])
+            # l_mse = mse_loss(outputs, labels)
+            # loss = l_pearson.mean() + mse_weight * l_mse.mean()
 
-            # V5b: SI-SDR + Multi-scale Pearson（备选方案，更稳健）
-            # 结合 SI-SDR 的幅度控制和多尺度 Pearson 的特征学习
-            # l_si_sdr = si_sdr_loss(outputs, labels)
-            # l_pearson = multi_scale_pearson_loss(outputs, labels, scales=[32, 64, 128])
-            # loss = l_si_sdr.mean() + 0.1 * l_pearson.mean()
+            # V7: Pearson + Huber Loss（当前版本）
+            # Huber Loss优势：
+            # 1. 小误差用L2（平滑梯度），大误差用L1（对异常值鲁棒）
+            # 2. 比MSE更适合不规则曲线（不会被峰值主导）
+            # 3. 与Pearson梯度兼容性更好
+            l_pearson = multi_scale_pearson_loss(outputs, labels, scales=[2, 4, 8, 16])
+            l_huber = F.smooth_l1_loss(outputs, labels, reduction='none', beta=0.1).mean()
+            loss = l_pearson.mean() + 0.1 * l_huber
 
             # 用于日志记录和监控
             with torch.no_grad():
                 l_p = pearson_loss(outputs, labels)
-                l_si_sdr_metric = si_sdr(outputs, labels)  # SI-SDR 指标（dB）
                 # 计算实际的方差比，用于监控幅度控制效果
                 var_true = torch.var(labels, dim=1, keepdim=False, unbiased=False)
                 var_pred = torch.var(outputs, dim=1, keepdim=False, unbiased=False)
@@ -477,10 +523,10 @@ def main():
                     total_steps=iter_per_epoch,
                     loss_dict={
                         'total': loss.item(),
-                        'si_sdr_loss': -loss.item(),  # 转回正值（dB）
-                        'si_sdr_metric': l_si_sdr_metric.mean().item(),
-                        'actual_var_ratio': actual_var_ratio.item(),
-                        'pearson': l_p.mean().item()
+                        'pearson_loss': l_pearson.mean().item(),
+                        'huber_loss': l_huber.item(),
+                        'var_ratio': actual_var_ratio.item(),
+                        'pearson_metric': l_p.mean().item()
                     },
                     lr=learning_rate,
                     speed=speed,
@@ -514,6 +560,14 @@ def main():
                 # Test the model
                 test_loss = 0
                 test_metric = 0
+                # 初始化多尺度指标累加器
+                multi_scale_metrics = {
+                    'pearson_scale_1': 0,
+                    'pearson_scale_4': 0,
+                    'pearson_scale_8': 0,
+                    'pearson_scale_16': 0,
+                    'pearson_scale_32': 0
+                }
 
                 for test_inputs, test_labels, test_sub_id in test_dataloader:
                     test_inputs = test_inputs.squeeze(0).to(device)
@@ -524,12 +578,36 @@ def main():
                     test_loss += pearson_loss(test_outputs, test_labels).mean()
                     test_metric += pearson_metric(test_outputs, test_labels).mean()
 
+                    # 计算多尺度 Pearson 相关系数
+                    batch_multi_scale = multi_scale_pearson_metric(test_outputs, test_labels, scales=[4, 8, 16, 32])
+                    for key in multi_scale_metrics:
+                        if key in batch_multi_scale:
+                            multi_scale_metrics[key] += batch_multi_scale[key].item()
+
                 test_loss /= len(test_dataloader)
                 test_metric /= len(test_dataloader)
                 test_metric = test_metric.mean()
 
-                # Log test results
+                # 平均多尺度指标
+                for key in multi_scale_metrics:
+                    multi_scale_metrics[key] /= len(test_dataloader)
+
+                # Log test results (基础指标)
                 logger.log_test(global_step, test_loss.mean().item(), test_metric.item())
+
+                # Log multi-scale test metrics to TensorBoard
+                if is_main_process and writer is not None:
+                    for scale_name, scale_value in multi_scale_metrics.items():
+                        writer.add_scalar(f'Test_MultiScale/{scale_name}', scale_value, global_step)
+
+                    # 打印多尺度测试结果
+                    print(f"\n{'='*60}")
+                    print(f"Test Multi-Scale Pearson Correlation (Step {global_step}):")
+                    print(f"{'='*60}")
+                    for scale_name, scale_value in multi_scale_metrics.items():
+                        scale_num = scale_name.split('_')[-1]
+                        print(f"  Scale {scale_num:>3}: {scale_value:.4f}")
+                    print(f"{'='*60}\n")
 
                 # Visualization
                 if is_main_process and viz_sample is not None:
