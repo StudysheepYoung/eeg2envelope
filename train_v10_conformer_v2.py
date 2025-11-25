@@ -32,10 +32,11 @@ import math
 import datetime
 import matplotlib.pyplot as plt
 import numpy as np
+from tqdm import tqdm
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--epoch', type=int, default=1000)
+parser.add_argument('--epoch', type=int, default=200)
 parser.add_argument('--batch_size', type=int, default=64)
 parser.add_argument('--win_len', type=int, default=10)
 parser.add_argument('--sample_rate', type=int, default=64)
@@ -50,7 +51,7 @@ parser.add_argument('--n_layers', type=int, default=8)
 parser.add_argument('--fft_conv1d_kernel', type=tuple, default=(9, 1))
 parser.add_argument('--fft_conv1d_padding', type=tuple, default=(4, 0))
 parser.add_argument('--learning_rate', type=float, default=0.0001)
-parser.add_argument('--dropout', type=float, default=0.3)
+parser.add_argument('--dropout', type=float, default=0.5)
 parser.add_argument('--lamda', type=float, default=1)
 parser.add_argument('--writing_interval', type=int, default=10)
 parser.add_argument('--saving_interval', type=int, default=50)
@@ -69,12 +70,12 @@ parser.add_argument('--use_gated_residual', type=bool, default=True, help='use g
 parser.add_argument('--use_mlp_head', type=bool, default=True, help='use MLP output head instead of single linear')
 parser.add_argument('--gradient_scale', type=float, default=2.0, help='gradient scaling factor for Conformer layers')
 # LLRD (Layer-wise Learning Rate Decay) 参数
-parser.add_argument('--use_llrd', type=bool, default=True, help='use layer-wise learning rate decay')
+parser.add_argument('--use_llrd', type=bool, default=False, help='use layer-wise learning rate decay')
 parser.add_argument('--llrd_front_scale', type=float, default=3.0, help='LR scale for front layers (CNN, SE, early Conformer)')
 parser.add_argument('--llrd_back_scale', type=float, default=2.0, help='LR scale for back layers (late Conformer, gated_residual)')
 parser.add_argument('--llrd_output_scale', type=float, default=0.5, help='LR scale for output head')
 # 输出层梯度缩放
-parser.add_argument('--output_grad_scale', type=float, default=0.5, help='scale factor for output head gradients after backward')
+parser.add_argument('--output_grad_scale', type=float, default=1, help='scale factor for output head gradients after backward')
 # ===================================
 
 parser.add_argument('--dataset_folder', type=str, default="/RAID5/projects/likeyang/happy/HappyQuokka_system_for_EEG_Challenge/data", help='write down your absolute path of dataset folder')
@@ -425,7 +426,17 @@ def main():
         if use_ddp and train_dataloader.sampler is not None:
             train_dataloader.sampler.set_epoch(epoch)
 
-        for step, (inputs, labels, sub_id) in enumerate(train_dataloader):
+        # 创建进度条（只在主进程显示）
+        if is_main_process:
+            pbar = tqdm(enumerate(train_dataloader),
+                       total=len(train_dataloader),
+                       desc=f'Epoch {epoch+1}/{args.epoch}',
+                       ncols=120,
+                       bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]')
+        else:
+            pbar = enumerate(train_dataloader)
+
+        for step, (inputs, labels, sub_id) in pbar:
             global_step += 1
             optimizer.zero_grad()
 
@@ -470,12 +481,20 @@ def main():
             # l_mse = mse_loss(outputs, labels)
             # loss = l_pearson.mean() + mse_weight * l_mse.mean()
 
-            # V7: Pearson + Huber Loss（当前版本）
+            # V8: Pearson + Huber Loss（当前版本，调整尺度权重）
             # Huber Loss优势：
             # 1. 小误差用L2（平滑梯度），大误差用L1（对异常值鲁棒）
             # 2. 比MSE更适合不规则曲线（不会被峰值主导）
             # 3. 与Pearson梯度兼容性更好
-            l_pearson = multi_scale_pearson_loss(outputs, labels, scales=[2, 4, 8, 16])
+            #
+            # 尺度权重调整策略：
+            # - 高频组 (尺度1,2): 加权60%，强化高频细节学习
+            # - 低频组 (尺度4,8,16): 加权40%，保持低频趋势捕捉
+            # - 原来权重：高频20%(1/5)，低频80%(4/5)
+            # - 现在权重：高频60%，低频40%，提升高频权重3倍
+            l_pearson_high = multi_scale_pearson_loss(outputs, labels, scales=[1, 2])      # 尺度1+2
+            l_pearson_low = multi_scale_pearson_loss(outputs, labels, scales=[4, 8, 16]) # 尺度1+4+8+16
+            l_pearson = 0.6 * l_pearson_high + 0.4 * l_pearson_low
             l_huber = F.smooth_l1_loss(outputs, labels, reduction='none', beta=0.1).mean()
             loss = l_pearson.mean() + 0.1 * l_huber
 
@@ -499,7 +518,16 @@ def main():
 
             optimizer.step()
 
-            # Log training progress
+            # 更新进度条显示（每步都更新）
+            if is_main_process:
+                pbar.set_postfix({
+                    'loss': f'{loss.item():.4f}',
+                    'pearson': f'{l_p.mean().item():.4f}',
+                    'lr': f'{optimizer.param_groups[0]["lr"]:.6f}',
+                    'step': global_step
+                })
+
+            # Log training progress (减少日志频率)
             if step % args.writing_interval == 0:
                 spend_time = time.time() - start_time
                 learning_rate = optimizer.param_groups[0]["lr"]
@@ -515,7 +543,7 @@ def main():
                 remaining_steps = total_steps - current_total_steps
                 total_remaining = time_per_step * remaining_steps
 
-                # Use unified logging interface
+                # Use unified logging interface (只记录到TensorBoard，不打印到终端)
                 logger.log_training(
                     epoch=epoch + 1,
                     total_epochs=args.epoch,
@@ -533,6 +561,10 @@ def main():
                     time_remaining=total_remaining,
                     global_step=global_step
                 )
+
+        # 关闭进度条
+        if is_main_process:
+            pbar.close()
 
         # Epoch-based evaluation
         if (epoch + 1) % args.eval_interval == 0:

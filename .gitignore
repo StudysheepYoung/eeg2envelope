@@ -3,3 +3,4 @@ train.sh
 data
 *.pyc
 __pychche__
+*.md

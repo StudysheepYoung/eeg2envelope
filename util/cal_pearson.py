@@ -68,7 +68,8 @@ def multi_scale_pearson_loss(y_pred, y_true, scales=[32, 64, 128], axis=1):
     import torch.nn.functional as F
 
     # 原始尺度的 Pearson Loss
-    total_loss = pearson_loss(y_true, y_pred, axis=axis)
+    # total_loss = pearson_loss(y_true, y_pred, axis=axis)
+    total_loss = 0
 
     # 对于每个尺度
     for scale in scales:

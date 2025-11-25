@@ -39,7 +39,7 @@ class TrainingLogger:
         if self.is_main:
             print(content)
 
-    def log_training(self, epoch, total_epochs, step, total_steps, loss_dict, lr, speed, time_remaining, global_step):
+    def log_training(self, epoch, total_epochs, step, total_steps, loss_dict, lr, speed, time_remaining, global_step, print_to_terminal=False):
         """
         记录训练信息
 
@@ -53,13 +53,15 @@ class TrainingLogger:
         speed: 训练速度（批/秒）
         time_remaining: 剩余时间（秒）
         global_step: 全局步数
+        print_to_terminal: 是否打印到终端（默认False，避免与tqdm冲突）
         """
-        # 终端输出
-        self.print(
-            f'Epoch:[{epoch}/{total_epochs}]({step}/{total_steps}) '
-            f'loss:{loss_dict.get("total", 0):.3f} lr:{lr:.5f} '
-            f'速度:{speed:.2f}批/秒 总剩余:{time_remaining:.2f}秒'
-        )
+        # 终端输出（使用tqdm时关闭，避免冲突）
+        if print_to_terminal:
+            self.print(
+                f'Epoch:[{epoch}/{total_epochs}]({step}/{total_steps}) '
+                f'loss:{loss_dict.get("total", 0):.3f} lr:{lr:.5f} '
+                f'速度:{speed:.2f}批/秒 总剩余:{time_remaining:.2f}秒'
+            )
 
         # TensorBoard记录 - 训练指标统一放在 Train/ 下
         if self.writer and self.is_main:
