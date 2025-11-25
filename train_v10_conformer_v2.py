@@ -36,7 +36,7 @@ from tqdm import tqdm
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--epoch', type=int, default=200)
+parser.add_argument('--epoch', type=int, default=500)
 parser.add_argument('--batch_size', type=int, default=64)
 parser.add_argument('--win_len', type=int, default=10)
 parser.add_argument('--sample_rate', type=int, default=64)
@@ -493,10 +493,10 @@ def main():
             # - 原来权重：高频20%(1/5)，低频80%(4/5)
             # - 现在权重：高频60%，低频40%，提升高频权重3倍
             l_pearson_high = multi_scale_pearson_loss(outputs, labels, scales=[1, 2])      # 尺度1+2
-            l_pearson_low = multi_scale_pearson_loss(outputs, labels, scales=[4, 8, 16]) # 尺度1+4+8+16
-            l_pearson = 0.6 * l_pearson_high + 0.4 * l_pearson_low
+            l_pearson_low = multi_scale_pearson_loss(outputs, labels, scales=[4, 8, 16]) # 尺度4+8+16
+            l_pearson = 0.7 * l_pearson_high + 0.3 * l_pearson_low
             l_huber = F.smooth_l1_loss(outputs, labels, reduction='none', beta=0.1).mean()
-            loss = l_pearson.mean() + 0.1 * l_huber
+            loss = l_pearson.mean() + 0.3 * l_huber
 
             # 用于日志记录和监控
             with torch.no_grad():
