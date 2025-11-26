@@ -47,7 +47,7 @@ parser.add_argument('--in_channel', type=int, default=64, help="channel of the i
 parser.add_argument('--d_model', type=int, default=256)
 parser.add_argument('--d_inner', type=int, default=1024)
 parser.add_argument('--n_head', type=int, default=4)
-parser.add_argument('--n_layers', type=int, default=8)
+parser.add_argument('--n_layers', type=int, default=4)
 parser.add_argument('--fft_conv1d_kernel', type=tuple, default=(9, 1))
 parser.add_argument('--fft_conv1d_padding', type=tuple, default=(4, 0))
 parser.add_argument('--learning_rate', type=float, default=0.0001)
@@ -63,12 +63,12 @@ parser.add_argument('--grad_log_interval', type=int, default=100, help='gradient
 parser.add_argument('--conv_kernel_size', type=int, default=31, help='kernel size for Conformer convolution module')
 parser.add_argument('--use_relative_pos', type=bool, default=True, help='use relative positional encoding in attention')
 parser.add_argument('--use_macaron_ffn', type=bool, default=True, help='use Macaron-style FFN in Conformer')
-parser.add_argument('--use_sinusoidal_pos', type=bool, default=True, help='use additional sinusoidal positional encoding')
+parser.add_argument('--use_sinusoidal_pos', type=bool, default=False, help='use additional sinusoidal positional encoding')
 
 # ============ v2 改进参数 ============
 parser.add_argument('--use_gated_residual', type=bool, default=True, help='use gated residual connection')
 parser.add_argument('--use_mlp_head', type=bool, default=True, help='use MLP output head instead of single linear')
-parser.add_argument('--gradient_scale', type=float, default=2.0, help='gradient scaling factor for Conformer layers')
+parser.add_argument('--gradient_scale', type=float, default=1.0, help='gradient scaling factor for Conformer layers')
 # LLRD (Layer-wise Learning Rate Decay) 参数
 parser.add_argument('--use_llrd', type=bool, default=False, help='use layer-wise learning rate decay')
 parser.add_argument('--llrd_front_scale', type=float, default=3.0, help='LR scale for front layers (CNN, SE, early Conformer)')

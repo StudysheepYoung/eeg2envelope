@@ -243,22 +243,23 @@ class Decoder(nn.Module):
         Forward pass
 
         Args:
-            dec_input: [batch_size, 64, 640] - EEG input (64 channels, 640 time steps)
+            dec_input: [batch_size, 640, 64] - EEG input (64 channels, 640 time steps)
             sub_id: [batch_size] - Subject IDs for global conditioning
 
         Returns:
             output: [batch_size, 640, 1] - Predicted values
         """
-
+        # import pdb
+        # pdb.set_trace()
         # 三层卷积 + (LayerNorm -> LeakyReLU -> Dropout)
-        x = dec_input.transpose(1, 2)  # [B, C, T]
+        x = dec_input.transpose(1, 2)  # [B, 64, 640]
 
-        x = self.conv1(x)
-        x = x.transpose(1, 2)          # [B, T, d_model]
-        x = self.norm1(x)
-        x = self.act1(x)
-        x = self.drop1(x)
-        x = x.transpose(1, 2)          # [B, d_model, T]
+        x = self.conv1(x)               # [B, 256, 640]
+        x = x.transpose(1, 2)          # [B, 640, 256]
+        x = self.norm1(x)               # [B, 640, 256]
+        x = self.act1(x)                # [B, 640, 256]
+        x = self.drop1(x)               # [B, 640, 256]
+        x = x.transpose(1, 2)          # [B, 256, 640]
 
         x = self.conv2(x)
         x = x.transpose(1, 2)
@@ -272,15 +273,15 @@ class Decoder(nn.Module):
         x = self.norm3(x)
         x = self.act3(x)
         x = self.drop3(x)
-        dec_output = x.transpose(1, 2)  # [B, d_model, T]
+        dec_output = x.transpose(1, 2)  # [B, 256, 640]
 
-        dec_output = self.se(dec_output)  # 加入通道注意力
-        dec_output = dec_output.transpose(1, 2)  # [B, T, d_model]
+        dec_output = self.se(dec_output)  # 加入通道注意力 [B, 256, 640]
+        dec_output = dec_output.transpose(1, 2)  # [B, 640, 256]
 
         # Global conditioner
         if self.g_con == True:
             sub_emb = F.one_hot(sub_id, self.within_sub_num)
-            sub_emb = self.sub_proj(sub_emb.float())
+            sub_emb = self.sub_proj(sub_emb.float()) # 64*256
             output = dec_output + sub_emb.unsqueeze(1)
         else:
             output = dec_output
