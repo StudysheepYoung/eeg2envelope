@@ -584,17 +584,17 @@ def main():
 
                 val_loss /= len(val_dataloader)
                 val_metric /= len(val_dataloader)
-                val_metric = val_metric.mean()
 
                 # Log validation results
-                logger.log_validation(global_step, val_loss.mean().item(), val_metric.item())
+                logger.log_validation(global_step, val_loss.item(), val_metric.item())
 
                 # Test the model
                 test_loss = 0
                 test_metric = 0
-                # 初始化多尺度指标累加器
+                # 初始化多尺度指标累加器（与训练时的尺度保持一致）
                 multi_scale_metrics = {
                     'pearson_scale_1': 0,
+                    'pearson_scale_2': 0,
                     'pearson_scale_4': 0,
                     'pearson_scale_8': 0,
                     'pearson_scale_16': 0,
@@ -610,22 +610,21 @@ def main():
                     test_loss += pearson_loss(test_outputs, test_labels).mean()
                     test_metric += pearson_metric(test_outputs, test_labels).mean()
 
-                    # 计算多尺度 Pearson 相关系数
-                    batch_multi_scale = multi_scale_pearson_metric(test_outputs, test_labels, scales=[4, 8, 16, 32])
+                    # 计算多尺度 Pearson 相关系数（与训练时保持一致：scales=[1,2,4,8,16]）
+                    batch_multi_scale = multi_scale_pearson_metric(test_outputs, test_labels, scales=[2, 4, 8, 16, 32])
                     for key in multi_scale_metrics:
                         if key in batch_multi_scale:
                             multi_scale_metrics[key] += batch_multi_scale[key].item()
 
                 test_loss /= len(test_dataloader)
                 test_metric /= len(test_dataloader)
-                test_metric = test_metric.mean()
 
                 # 平均多尺度指标
                 for key in multi_scale_metrics:
                     multi_scale_metrics[key] /= len(test_dataloader)
 
                 # Log test results (基础指标)
-                logger.log_test(global_step, test_loss.mean().item(), test_metric.item())
+                logger.log_test(global_step, test_loss.item(), test_metric.item())
 
                 # Log multi-scale test metrics to TensorBoard
                 if is_main_process and writer is not None:
