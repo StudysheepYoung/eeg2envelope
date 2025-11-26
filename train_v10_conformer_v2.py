@@ -69,6 +69,7 @@ parser.add_argument('--use_sinusoidal_pos', type=bool, default=False, help='use 
 parser.add_argument('--use_gated_residual', type=bool, default=True, help='use gated residual connection')
 parser.add_argument('--use_mlp_head', type=bool, default=True, help='use MLP output head instead of single linear')
 parser.add_argument('--gradient_scale', type=float, default=1.0, help='gradient scaling factor for Conformer layers')
+parser.add_argument('--skip_cnn', action='store_true', help='skip CNN feature extraction, use raw EEG directly')
 # LLRD (Layer-wise Learning Rate Decay) 参数
 parser.add_argument('--use_llrd', type=bool, default=False, help='use layer-wise learning rate decay')
 parser.add_argument('--llrd_front_scale', type=float, default=3.0, help='LR scale for front layers (CNN, SE, early Conformer)')
@@ -333,7 +334,8 @@ def main():
         # v2 改进参数
         use_gated_residual=args.use_gated_residual,
         use_mlp_head=args.use_mlp_head,
-        gradient_scale=args.gradient_scale
+        gradient_scale=args.gradient_scale,
+        skip_cnn=args.skip_cnn  # 是否跳过CNN特征提取
     ).to(device)
     # ==============================================
 
@@ -359,6 +361,7 @@ def main():
         print(f"  - Use gated residual: {args.use_gated_residual}")
         print(f"  - Use MLP head: {args.use_mlp_head}")
         print(f"  - Gradient scale: {args.gradient_scale}x")
+        print(f"  - Skip CNN: {args.skip_cnn} {'⚠️  直接使用原始EEG数据' if args.skip_cnn else ''}")
         print(f"\n参数统计:")
         print(f"  - Total parameters: {total_params:,}")
         print(f"  - Trainable parameters: {trainable_params:,}")

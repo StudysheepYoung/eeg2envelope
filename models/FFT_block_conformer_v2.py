@@ -7,6 +7,13 @@ Conformer-based Model for EEG Signal Processing (v2 - Improved)
 2. 门控残差：自适应学习跳跃连接的权重
 3. MLP输出头：替换单层线性层，增强表达能力
 4. 梯度缩放：帮助前层获得更大梯度
+5. Skip CNN选项：可选跳过CNN特征提取,直接使用原始EEG数据
+
+CNN预提取（原始版本 - 已回退）:
+- 三层卷积: kernel=7,5,3, padding=3,2,1
+- LayerNorm (需要频繁transpose)
+- 无空洞卷积，无残差连接
+- 感受野: 15 time steps (234ms @ 64Hz)
 
 Based on "Conformer: Convolution-augmented Transformer for Speech Recognition"
 https://arxiv.org/abs/2005.08100
@@ -178,6 +185,7 @@ class Decoder(nn.Module):
                  use_gated_residual=True,  # 是否使用门控残差
                  use_mlp_head=True,        # 是否使用MLP输出头
                  gradient_scale=1.0,       # 梯度缩放因子
+                 skip_cnn=False,           # 是否跳过CNN特征提取(直接用原始数据)
                  **kwargs):
 
         super(Decoder, self).__init__()
@@ -187,6 +195,8 @@ class Decoder(nn.Module):
         self.use_gated_residual = use_gated_residual
         self.use_mlp_head = use_mlp_head
         self.gradient_scale = gradient_scale
+        self.skip_cnn = skip_cnn
+        self.d_model = d_model  # 保存d_model以便skip_cnn使用
 
         # 输出头：MLP或单层线性
         if use_mlp_head:
@@ -194,23 +204,28 @@ class Decoder(nn.Module):
         else:
             self.fc = nn.Linear(d_model, 1)
 
-        # 三层卷积：每层后依次 LayerNorm -> LeakyReLU -> Dropout
-        self.conv1 = nn.Conv1d(in_channel, d_model, kernel_size=7, padding=3)
-        self.norm1 = nn.LayerNorm(d_model)
-        self.act1 = nn.LeakyReLU(negative_slope=0.01, inplace=True)
-        self.drop1 = nn.Dropout(dropout)
+        # Skip CNN模式：简单线性投影
+        if skip_cnn:
+            self.input_proj = nn.Linear(in_channel, d_model)
+        else:
+            # 三层卷积：每层后依次 LayerNorm -> LeakyReLU -> Dropout
+            # 原始版本 - 无空洞卷积，无残差连接
+            self.conv1 = nn.Conv1d(in_channel, d_model, kernel_size=7, padding=3)
+            self.norm1 = nn.LayerNorm(d_model)
+            self.act1 = nn.LeakyReLU(negative_slope=0.01, inplace=True)
+            self.drop1 = nn.Dropout(dropout)
 
-        self.conv2 = nn.Conv1d(d_model, d_model, kernel_size=5, padding=2)
-        self.norm2 = nn.LayerNorm(d_model)
-        self.act2 = nn.LeakyReLU(negative_slope=0.01, inplace=True)
-        self.drop2 = nn.Dropout(dropout)
+            self.conv2 = nn.Conv1d(d_model, d_model, kernel_size=5, padding=2)
+            self.norm2 = nn.LayerNorm(d_model)
+            self.act2 = nn.LeakyReLU(negative_slope=0.01, inplace=True)
+            self.drop2 = nn.Dropout(dropout)
 
-        self.conv3 = nn.Conv1d(d_model, d_model, kernel_size=3, padding=1)
-        self.norm3 = nn.LayerNorm(d_model)
-        self.act3 = nn.LeakyReLU(negative_slope=0.01, inplace=True)
-        self.drop3 = nn.Dropout(dropout)
+            self.conv3 = nn.Conv1d(d_model, d_model, kernel_size=3, padding=1)
+            self.norm3 = nn.LayerNorm(d_model)
+            self.act3 = nn.LeakyReLU(negative_slope=0.01, inplace=True)
+            self.drop3 = nn.Dropout(dropout)
 
-        self.se = SEBlock(d_model, reduction=16)  # SE通道注意力
+            self.se = SEBlock(d_model, reduction=16)  # SE通道注意力
 
         # 位置编码层 (可选，因为Conformer已有相对位置编码)
         if use_sinusoidal_pos:
@@ -251,32 +266,45 @@ class Decoder(nn.Module):
         """
         # import pdb
         # pdb.set_trace()
-        # 三层卷积 + (LayerNorm -> LeakyReLU -> Dropout)
-        x = dec_input.transpose(1, 2)  # [B, 64, 640]
 
-        x = self.conv1(x)               # [B, 256, 640]
-        x = x.transpose(1, 2)          # [B, 640, 256]
-        x = self.norm1(x)               # [B, 640, 256]
-        x = self.act1(x)                # [B, 640, 256]
-        x = self.drop1(x)               # [B, 640, 256]
-        x = x.transpose(1, 2)          # [B, 256, 640]
+        if self.skip_cnn:
+            # ============ 跳过CNN特征提取,直接用原始数据 ============
+            # 使用简单的线性投影调整通道数: [B, 640, 64] -> [B, 640, d_model]
+            dec_output = self.input_proj(dec_input)  # [B, 640, d_model]
+        else:
+            # ============ 原始三层卷积：LayerNorm版本 ============
+            # 输入: [B, 640, 64] -> transpose -> [B, 64, 640]
+            x = dec_input.transpose(1, 2)  # [B, 64, 640]
 
-        x = self.conv2(x)
-        x = x.transpose(1, 2)
-        x = self.norm2(x)
-        x = self.act2(x)
-        x = self.drop2(x)
-        x = x.transpose(1, 2)
+            # Conv1
+            x = self.conv1(x)                  # [B, 256, 640]
+            x = x.transpose(1, 2)              # [B, 640, 256] - LayerNorm需要这个格式
+            x = self.norm1(x)                  # LayerNorm
+            x = x.transpose(1, 2)              # [B, 256, 640] - 转回Conv格式
+            x = self.act1(x)
+            x = self.drop1(x)
 
-        x = self.conv3(x)
-        x = x.transpose(1, 2)
-        x = self.norm3(x)
-        x = self.act3(x)
-        x = self.drop3(x)
-        dec_output = x.transpose(1, 2)  # [B, 256, 640]
+            # Conv2
+            x = self.conv2(x)                  # [B, 256, 640]
+            x = x.transpose(1, 2)              # [B, 640, 256]
+            x = self.norm2(x)                  # LayerNorm
+            x = x.transpose(1, 2)              # [B, 256, 640]
+            x = self.act2(x)
+            x = self.drop2(x)
 
-        dec_output = self.se(dec_output)  # 加入通道注意力 [B, 256, 640]
-        dec_output = dec_output.transpose(1, 2)  # [B, 640, 256]
+            # Conv3
+            x = self.conv3(x)                  # [B, 256, 640]
+            x = x.transpose(1, 2)              # [B, 640, 256]
+            x = self.norm3(x)                  # LayerNorm
+            x = x.transpose(1, 2)              # [B, 256, 640]
+            x = self.act3(x)
+            dec_output = self.drop3(x)         # [B, 256, 640]
+
+            # SE 通道注意力
+            dec_output = self.se(dec_output)   # [B, 256, 640]
+
+            # 转换为 [B, T, C] 格式，准备进入 Conformer
+            dec_output = dec_output.transpose(1, 2)  # [B, 640, 256]
 
         # Global conditioner
         if self.g_con == True:
