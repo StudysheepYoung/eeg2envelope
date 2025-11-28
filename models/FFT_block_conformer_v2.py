@@ -250,8 +250,11 @@ class Decoder(nn.Module):
         if use_gated_residual:
             self.gated_residual = GatedResidual(d_model)
 
-        # Subject embedding projection
-        self.sub_proj = nn.Linear(self.within_sub_num, d_model)
+        # Subject embedding projection (only create when g_con=True)
+        if g_con:
+            self.sub_proj = nn.Linear(self.within_sub_num, d_model)
+        else:
+            self.sub_proj = None
 
     def forward(self, dec_input, sub_id):
         """

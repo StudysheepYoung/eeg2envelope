@@ -51,11 +51,11 @@ parser.add_argument('--n_layers', type=int, default=4)
 parser.add_argument('--fft_conv1d_kernel', type=tuple, default=(9, 1))
 parser.add_argument('--fft_conv1d_padding', type=tuple, default=(4, 0))
 parser.add_argument('--learning_rate', type=float, default=0.0001)
-parser.add_argument('--dropout', type=float, default=0.5)
+parser.add_argument('--dropout', type=float, default=0.4)
 parser.add_argument('--lamda', type=float, default=1)
 parser.add_argument('--writing_interval', type=int, default=10)
-parser.add_argument('--saving_interval', type=int, default=50)
-parser.add_argument('--eval_interval', type=int, default=10, help='evaluation interval (epochs)')
+parser.add_argument('--saving_interval', type=int, default=5)
+parser.add_argument('--eval_interval', type=int, default=5, help='evaluation interval (epochs)')
 parser.add_argument('--viz_sample_idx', type=int, default=0, help='fixed test sample index for visualization')
 parser.add_argument('--grad_log_interval', type=int, default=100, help='gradient logging interval (steps)')
 
@@ -71,9 +71,9 @@ parser.add_argument('--use_mlp_head', type=bool, default=True, help='use MLP out
 parser.add_argument('--gradient_scale', type=float, default=1.0, help='gradient scaling factor for Conformer layers')
 parser.add_argument('--skip_cnn', action='store_true', help='skip CNN feature extraction, use raw EEG directly')
 # LLRD (Layer-wise Learning Rate Decay) 参数
-parser.add_argument('--use_llrd', type=bool, default=False, help='use layer-wise learning rate decay')
-parser.add_argument('--llrd_front_scale', type=float, default=3.0, help='LR scale for front layers (CNN, SE, early Conformer)')
-parser.add_argument('--llrd_back_scale', type=float, default=2.0, help='LR scale for back layers (late Conformer, gated_residual)')
+parser.add_argument('--use_llrd', type=bool, default=True, help='use layer-wise learning rate decay')
+parser.add_argument('--llrd_front_scale', type=float, default=1.0, help='LR scale for front layers (CNN, SE, early Conformer)')
+parser.add_argument('--llrd_back_scale', type=float, default=3.0, help='LR scale for back layers (late Conformer, gated_residual)')
 parser.add_argument('--llrd_output_scale', type=float, default=0.5, help='LR scale for output head')
 # 输出层梯度缩放
 parser.add_argument('--output_grad_scale', type=float, default=1, help='scale factor for output head gradients after backward')
@@ -325,7 +325,7 @@ def main():
         fft_conv1d_padding=args.fft_conv1d_padding,
         dropout=args.dropout,
         g_con=args.g_con,
-        within_sub_num=71,
+        within_sub_num=85,
         # Conformer-specific parameters
         conv_kernel_size=args.conv_kernel_size,
         use_relative_pos=args.use_relative_pos,

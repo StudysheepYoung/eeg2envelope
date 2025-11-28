@@ -31,6 +31,18 @@ class RegressionDataset(Dataset):
         self.preload_data()
         
     def preload_data(self):
+        '''
+        files = [
+            ["train_-_sub-01_-_task-cocktailparty_-_eeg.npy",
+            "train_-_sub-01_-_task-cocktailparty_-_envelope.npy"],
+
+            ["train_-_sub-01_-_task-selectiveattention_-_eeg.npy",
+            "train_-_sub-01_-_task-selectiveattention_-_envelope.npy"],
+
+            ["train_-_sub-02_-_task-selectiveattention_-_eeg.npy",
+            "train_-_sub-02_-_task-selectiveattention_-_envelope.npy"],
+        ]
+        '''
         """预加载所有数据到内存，减少训练过程中的IO操作"""
         if self.task == "train":    
             print(f"开始预加载{len(self.files)}组训练用eeg和对应envelope到内存...")
@@ -49,6 +61,16 @@ class RegressionDataset(Dataset):
                 else:
                     sub_idx = 0
                 self.preloaded_data[i].append((data, sub_idx))
+        '''
+        self.preloaded_data = {
+            0: [(eeg_data_0, sub_idx_0), (envelope_data_0, sub_idx_0)],
+            1: [(eeg_data_1, sub_idx_1), (envelope_data_1, sub_idx_1)],
+            2: [(eeg_data_2, sub_idx_2), (envelope_data_2, sub_idx_2)],
+            ...
+            507: [(eeg_data_507, sub_idx_507), (envelope_data_507,
+        sub_idx_507)]
+        }
+        '''
         if self.task == "train":    
             print("训练数据预加载完成！")
         elif self.task == "test":
@@ -88,10 +110,14 @@ class RegressionDataset(Dataset):
         
         # 使用预加载的数据
         for idx, (data, sub_idx) in enumerate(self.preloaded_data[recording_index]):
+            '''
+            [(eeg_data_0, sub_idx_0), (envelope_data_0, sub_idx_0)]
+            '''
             # 计算可采样的最大起始位置
             max_start = len(data) - self.input_length
             
             if idx == 0:
+                #指的是eeg信号
                 # 根据窗口索引确定采样位置，确保不同窗口采样不同区域
                 if self.windows_per_sample > 1:
                     # 将可用范围平均分配给每个窗口
