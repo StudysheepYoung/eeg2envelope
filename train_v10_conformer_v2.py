@@ -69,7 +69,8 @@ parser.add_argument('--use_sinusoidal_pos', type=bool, default=False, help='use 
 parser.add_argument('--use_gated_residual', type=bool, default=True, help='use gated residual connection')
 parser.add_argument('--use_mlp_head', type=bool, default=True, help='use MLP output head instead of single linear')
 parser.add_argument('--gradient_scale', type=float, default=1.0, help='gradient scaling factor for Conformer layers')
-parser.add_argument('--skip_cnn', action='store_true', help='skip CNN feature extraction, use raw EEG directly')
+parser.add_argument('--skip_cnn', type=bool, default=True, help='skip CNN feature extraction, use raw EEG directly')
+parser.add_argument('--use_se', type=bool, default=True, help='use SE channel attention module (independent control)')
 # LLRD (Layer-wise Learning Rate Decay) 参数
 parser.add_argument('--use_llrd', type=bool, default=True, help='use layer-wise learning rate decay')
 parser.add_argument('--llrd_front_scale', type=float, default=1.0, help='LR scale for front layers (CNN, SE, early Conformer)')
@@ -335,7 +336,8 @@ def main():
         use_gated_residual=args.use_gated_residual,
         use_mlp_head=args.use_mlp_head,
         gradient_scale=args.gradient_scale,
-        skip_cnn=args.skip_cnn  # 是否跳过CNN特征提取
+        skip_cnn=args.skip_cnn,  # 是否跳过CNN特征提取
+        use_se=args.use_se       # 是否使用SE通道注意力(独立控制)
     ).to(device)
     # ==============================================
 
@@ -362,6 +364,7 @@ def main():
         print(f"  - Use MLP head: {args.use_mlp_head}")
         print(f"  - Gradient scale: {args.gradient_scale}x")
         print(f"  - Skip CNN: {args.skip_cnn} {'⚠️  直接使用原始EEG数据' if args.skip_cnn else ''}")
+        print(f"  - Use SE attention: {args.use_se} {'(独立控制)' if args.use_se else ''}")
         print(f"\n参数统计:")
         print(f"  - Total parameters: {total_params:,}")
         print(f"  - Trainable parameters: {trainable_params:,}")
@@ -421,7 +424,7 @@ def main():
     global_step = 0
 
     # ============ 跟踪最佳模型 ============
-    best_test_pearson = -float('inf')  # 最佳test Pearson系数
+    best_val_loss = float('inf')  # 最佳validation loss (越小越好)
     best_epoch = 0
     best_step = 0
     # ====================================
@@ -597,179 +600,49 @@ def main():
                 # Log validation results
                 logger.log_validation(global_step, val_loss.item(), val_metric.item())
 
-                # Test the model
-                test_loss = 0
-                test_metric = 0
-                # 初始化多尺度指标累加器（与训练时的尺度保持一致）
-                multi_scale_metrics = {
-                    'pearson_scale_1': 0,
-                    'pearson_scale_2': 0,
-                    'pearson_scale_4': 0,
-                    'pearson_scale_8': 0,
-                    'pearson_scale_16': 0,
-                    'pearson_scale_32': 0
-                }
-
-                # 存储所有test样本的预测结果和标签（用于保存最佳模型的预测）
-                all_test_outputs = []
-                all_test_labels = []
-                all_test_sub_ids = []
-                all_test_pearsons = []  # 每个样本的Pearson系数
-
-                for test_inputs, test_labels, test_sub_id in test_dataloader:
-                    test_inputs = test_inputs.squeeze(0).to(device)
-                    test_labels = test_labels.squeeze(0).to(device)
-                    test_sub_id = test_sub_id.to(device)
-
-                    test_outputs = model(test_inputs, test_sub_id)
-                    test_loss += pearson_loss(test_outputs, test_labels).mean()
-
-                    # 计算单个样本的Pearson系数
-                    sample_pearson = pearson_metric(test_outputs, test_labels).mean()
-                    test_metric += sample_pearson
-
-                    # 保存预测结果
-                    all_test_outputs.append(test_outputs.cpu())
-                    all_test_labels.append(test_labels.cpu())
-                    all_test_sub_ids.append(test_sub_id.cpu())
-                    all_test_pearsons.append(sample_pearson.item())
-
-                    # 计算多尺度 Pearson 相关系数（与训练时保持一致：scales=[1,2,4,8,16]）
-                    batch_multi_scale = multi_scale_pearson_metric(test_outputs, test_labels, scales=[2, 4, 8, 16, 32])
-                    for key in multi_scale_metrics:
-                        if key in batch_multi_scale:
-                            multi_scale_metrics[key] += batch_multi_scale[key].item()
-
-                test_loss /= len(test_dataloader)
-                test_metric /= len(test_dataloader)
-
-                # 平均多尺度指标
-                for key in multi_scale_metrics:
-                    multi_scale_metrics[key] /= len(test_dataloader)
-
-                # Log test results (基础指标)
-                logger.log_test(global_step, test_loss.item(), test_metric.item())
-
-                # Log multi-scale test metrics to TensorBoard
-                if is_main_process and writer is not None:
-                    for scale_name, scale_value in multi_scale_metrics.items():
-                        writer.add_scalar(f'Test_MultiScale/{scale_name}', scale_value, global_step)
-
-                    # 打印多尺度测试结果
-                    print(f"\n{'='*60}")
-                    print(f"Test Multi-Scale Pearson Correlation (Step {global_step}):")
-                    print(f"{'='*60}")
-                    for scale_name, scale_value in multi_scale_metrics.items():
-                        scale_num = scale_name.split('_')[-1]
-                        print(f"  Scale {scale_num:>3}: {scale_value:.4f}")
-                    print(f"{'='*60}\n")
-
-                # ============ 检查是否为最佳模型并保存预测结果 ============
-                if is_main_process and test_metric.item() > best_test_pearson:
-                    best_test_pearson = test_metric.item()
+                # ============ 保存最佳模型（基于validation loss） ============
+                if is_main_process and val_loss.item() < best_val_loss:
+                    best_val_loss = val_loss.item()
                     best_epoch = epoch + 1
                     best_step = global_step
 
                     print(f"\n{'🎉'*30}")
-                    print(f"🏆 新的最佳模型！")
+                    print(f"🏆 发现更好的模型！")
                     print(f"  Epoch: {best_epoch}, Step: {best_step}")
-                    print(f"  Test Pearson: {best_test_pearson:.4f}")
+                    print(f"  Val Loss: {best_val_loss:.4f}")
+                    print(f"  Val Pearson: {val_metric.item():.4f}")
                     print(f"{'🎉'*30}\n")
 
-                    # 创建best_predictions目录
-                    best_pred_dir = os.path.join(save_path, 'best_predictions')
-                    os.makedirs(best_pred_dir, exist_ok=True)
-                    os.makedirs(os.path.join(best_pred_dir, 'predictions'), exist_ok=True)
-                    os.makedirs(os.path.join(best_pred_dir, 'visualizations'), exist_ok=True)
+                    # 保存最佳模型权重
+                    best_model_path = os.path.join(save_path, 'best_model.pt')
+                    if use_ddp and local_rank != -1:
+                        checkpoint = {
+                            'epoch': best_epoch,
+                            'step': best_step,
+                            'model_state_dict': model.module.state_dict(),
+                            'optimizer_state_dict': optimizer.state_dict(),
+                            'learning_rate': optimizer.param_groups[0]["lr"],
+                            'val_loss': best_val_loss,
+                            'val_pearson': val_metric.item(),
+                            'args': vars(args)
+                        }
+                    else:
+                        checkpoint = {
+                            'epoch': best_epoch,
+                            'step': best_step,
+                            'state_dict': model.state_dict(),
+                            'optimizer': optimizer.state_dict(),
+                            'learning_rate': optimizer.param_groups[0]["lr"],
+                            'val_loss': best_val_loss,
+                            'val_pearson': val_metric.item(),
+                            'args': vars(args)
+                        }
 
-                    # 保存每个test样本的预测结果
-                    print(f"保存最佳模型的test预测结果到: {best_pred_dir}")
+                    torch.save(checkpoint, best_model_path)
+                    print(f"✓ 最佳模型已保存到: {best_model_path}\n")
+                # ============================================================
 
-                    for idx, (outputs, labels, sub_id, pearson) in enumerate(
-                        zip(all_test_outputs, all_test_labels, all_test_sub_ids, all_test_pearsons)):
-
-                        # 保存预测的npy文件
-                        pred_save_path = os.path.join(best_pred_dir, 'predictions', f'test_sample_{idx:03d}_sub{sub_id.item():03d}.npy')
-                        np.save(pred_save_path, outputs.numpy())
-
-                        # 保存标签的npy文件
-                        label_save_path = os.path.join(best_pred_dir, 'predictions', f'test_sample_{idx:03d}_sub{sub_id.item():03d}_label.npy')
-                        np.save(label_save_path, labels.numpy())
-
-                        # 生成可视化对比图
-                        fig, ax = plt.subplots(figsize=(16, 6))
-                        time_axis = np.arange(min(outputs.shape[0], 640)) / 64.0  # 最多显示10秒
-
-                        pred_plot = outputs[:len(time_axis), 0].numpy()
-                        label_plot = labels[:len(time_axis), 0].numpy()
-
-                        ax.plot(time_axis, label_plot, label='Ground Truth', alpha=0.7, linewidth=1.5, color='blue')
-                        ax.plot(time_axis, pred_plot, label='Prediction', alpha=0.7, linewidth=1.5, color='orange')
-                        ax.set_xlabel('Time (s)', fontsize=12)
-                        ax.set_ylabel('Envelope Amplitude', fontsize=12)
-                        ax.set_title(f'Test Sample {idx} (Sub-{sub_id.item():03d}) | Pearson: {pearson:.4f}\nBest Model (Epoch {best_epoch}, Step {best_step})',
-                                    fontsize=14, fontweight='bold')
-                        ax.legend(fontsize=11)
-                        ax.grid(True, alpha=0.3)
-
-                        # 保存可视化图
-                        viz_save_path = os.path.join(best_pred_dir, 'visualizations', f'test_sample_{idx:03d}_sub{sub_id.item():03d}.png')
-                        plt.savefig(viz_save_path, dpi=150, bbox_inches='tight')
-                        plt.close()
-
-                    # 保存统计信息JSON
-                    best_results = {
-                        'epoch': best_epoch,
-                        'step': best_step,
-                        'test_pearson': best_test_pearson,
-                        'test_loss': test_loss.item(),
-                        'multi_scale_metrics': {k: float(v) for k, v in multi_scale_metrics.items()},
-                        'per_sample_pearsons': all_test_pearsons,
-                        'mean_pearson': float(np.mean(all_test_pearsons)),
-                        'std_pearson': float(np.std(all_test_pearsons)),
-                        'min_pearson': float(np.min(all_test_pearsons)),
-                        'max_pearson': float(np.max(all_test_pearsons)),
-                        'num_test_samples': len(all_test_pearsons)
-                    }
-
-                    import json
-                    with open(os.path.join(best_pred_dir, 'best_results.json'), 'w') as f:
-                        json.dump(best_results, f, indent=2)
-
-                    # 保存Pearson分布的箱线图和直方图
-                    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
-
-                    # 箱线图
-                    ax1.boxplot([all_test_pearsons], labels=['Test Samples'],
-                               patch_artist=True, showmeans=True,
-                               meanprops=dict(marker='D', markerfacecolor='red', markersize=8),
-                               boxprops=dict(facecolor='lightblue'),
-                               medianprops=dict(color='darkblue', linewidth=2))
-                    ax1.set_ylabel('Pearson Correlation', fontsize=12)
-                    ax1.set_title(f'Test Pearson Distribution (Epoch {best_epoch}, Step {best_step})', fontsize=14, fontweight='bold')
-                    ax1.grid(True, alpha=0.3, axis='y')
-
-                    # 直方图
-                    ax2.hist(all_test_pearsons, bins=20, alpha=0.7, color='skyblue', edgecolor='black')
-                    ax2.axvline(np.mean(all_test_pearsons), color='red', linestyle='--', linewidth=2, label=f'Mean: {np.mean(all_test_pearsons):.4f}')
-                    ax2.axvline(np.median(all_test_pearsons), color='green', linestyle='--', linewidth=2, label=f'Median: {np.median(all_test_pearsons):.4f}')
-                    ax2.set_xlabel('Pearson Correlation', fontsize=12)
-                    ax2.set_ylabel('Frequency', fontsize=12)
-                    ax2.set_title('Pearson Distribution Histogram', fontsize=14, fontweight='bold')
-                    ax2.legend(fontsize=11)
-                    ax2.grid(True, alpha=0.3, axis='y')
-
-                    plt.tight_layout()
-                    plt.savefig(os.path.join(best_pred_dir, 'pearson_distribution.png'), dpi=150, bbox_inches='tight')
-                    plt.close()
-
-                    print(f"✓ 已保存 {len(all_test_pearsons)} 个test样本的预测结果")
-                    print(f"  - 预测文件: {os.path.join(best_pred_dir, 'predictions')}")
-                    print(f"  - 可视化: {os.path.join(best_pred_dir, 'visualizations')}")
-                    print(f"  - 统计信息: {os.path.join(best_pred_dir, 'best_results.json')}\n")
-                # ======================================================
-
-                # Visualization
+                # Visualization on val sample (for monitoring)
                 if is_main_process and viz_sample is not None:
                     viz_inputs, viz_labels, viz_sub_id = viz_sample
                     viz_outputs = model(viz_inputs, viz_sub_id)

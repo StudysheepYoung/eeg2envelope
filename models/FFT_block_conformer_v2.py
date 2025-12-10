@@ -185,7 +185,8 @@ class Decoder(nn.Module):
                  use_gated_residual=True,  # 是否使用门控残差
                  use_mlp_head=True,        # 是否使用MLP输出头
                  gradient_scale=1.0,       # 梯度缩放因子
-                 skip_cnn=False,           # 是否跳过CNN特征提取(直接用原始数据)
+                 skip_cnn=True,            # 是否跳过CNN特征提取(直接用原始数据)
+                 use_se=True,              # 是否使用SE通道注意力模块(独立控制)
                  **kwargs):
 
         super(Decoder, self).__init__()
@@ -196,6 +197,7 @@ class Decoder(nn.Module):
         self.use_mlp_head = use_mlp_head
         self.gradient_scale = gradient_scale
         self.skip_cnn = skip_cnn
+        self.use_se = use_se
         self.d_model = d_model  # 保存d_model以便skip_cnn使用
 
         # 输出头：MLP或单层线性
@@ -225,7 +227,9 @@ class Decoder(nn.Module):
             self.act3 = nn.LeakyReLU(negative_slope=0.01, inplace=True)
             self.drop3 = nn.Dropout(dropout)
 
-            self.se = SEBlock(d_model, reduction=16)  # SE通道注意力
+        # SE通道注意力模块：独立控制，可与CNN或无CNN配合使用
+        if use_se:
+            self.se = SEBlock(d_model, reduction=16)
 
         # 位置编码层 (可选，因为Conformer已有相对位置编码)
         if use_sinusoidal_pos:
@@ -274,6 +278,12 @@ class Decoder(nn.Module):
             # ============ 跳过CNN特征提取,直接用原始数据 ============
             # 使用简单的线性投影调整通道数: [B, 640, 64] -> [B, 640, d_model]
             dec_output = self.input_proj(dec_input)  # [B, 640, d_model]
+
+            # 如果启用SE且跳过CNN，需要先转为[B, C, T]格式应用SE，再转回
+            if self.use_se:
+                dec_output = dec_output.transpose(1, 2)  # [B, d_model, 640]
+                dec_output = self.se(dec_output)         # [B, d_model, 640]
+                dec_output = dec_output.transpose(1, 2)  # [B, 640, d_model]
         else:
             # ============ 原始三层卷积：LayerNorm版本 ============
             # 输入: [B, 640, 64] -> transpose -> [B, 64, 640]
@@ -303,8 +313,9 @@ class Decoder(nn.Module):
             x = self.act3(x)
             dec_output = self.drop3(x)         # [B, 256, 640]
 
-            # SE 通道注意力
-            dec_output = self.se(dec_output)   # [B, 256, 640]
+            # SE 通道注意力 (如果启用)
+            if self.use_se:
+                dec_output = self.se(dec_output)   # [B, 256, 640]
 
             # 转换为 [B, T, C] 格式，准备进入 Conformer
             dec_output = dec_output.transpose(1, 2)  # [B, 640, 256]
