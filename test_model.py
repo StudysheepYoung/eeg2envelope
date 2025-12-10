@@ -322,8 +322,8 @@ def evaluate_model(model, test_samples, device, input_length=640, batch_size=64)
                 # 预测
                 pred_batch = model(eeg_batch, sub_id_batch)
 
-                # 计算当前batch的Pearson
-                pearson_batch = pearson_metric(envelope_batch, pred_batch).item()
+                # 计算当前batch的Pearson（返回的是向量，需要先求平均）
+                pearson_batch = pearson_metric(envelope_batch, pred_batch).mean().item()
                 pearson_sum += pearson_batch
 
                 # 保存预测和标签（用于后续保存）
@@ -359,24 +359,52 @@ def evaluate_model(model, test_samples, device, input_length=640, batch_size=64)
 def save_results(results, args_dict, output_dir, checkpoint_name, save_predictions=False):
     """
     保存评估结果
+
+    注意：先对每个受试者的所有recordings求平均得到该受试者的Pearson，
+          然后再对所有受试者的Pearson进行统计（均值、标准差等）
     """
     os.makedirs(output_dir, exist_ok=True)
 
-    # ========== 计算统计指标 ==========
-    all_pearsons = [s['pearson'] for s in results['samples']]
-
-    # 按受试者范围分组
-    group_1_71 = []  # 受试者1-71
-    group_72_85 = []  # 受试者72-85
+    # ========== 第1步：按受试者分组，计算每个受试者的平均Pearson ==========
+    subject_pearsons = {}  # {subject_id: [pearson1, pearson2, ...]}
 
     for sample in results['samples']:
         sub_id = sample['subject_id']
         pearson = sample['pearson']
 
+        if sub_id not in subject_pearsons:
+            subject_pearsons[sub_id] = []
+        subject_pearsons[sub_id].append(pearson)
+
+    # 计算每个受试者的平均Pearson
+    subject_avg_pearsons = {}  # {subject_id: avg_pearson}
+    per_subject_details = []  # 每个受试者的详细信息
+
+    for sub_id in sorted(subject_pearsons.keys()):
+        pearsons = subject_pearsons[sub_id]
+        avg_pearson = np.mean(pearsons)
+        subject_avg_pearsons[sub_id] = avg_pearson
+
+        per_subject_details.append({
+            'subject_id': sub_id,
+            'num_recordings': len(pearsons),
+            'avg_pearson': float(avg_pearson),
+            'std_pearson': float(np.std(pearsons)),
+            'recordings': pearsons  # 该受试者所有recordings的Pearson
+        })
+
+    # ========== 第2步：按受试者范围分组（使用每个受试者的平均Pearson）==========
+    group_1_71 = []  # 受试者1-71的平均Pearson列表
+    group_72_85 = []  # 受试者72-85的平均Pearson列表
+
+    for sub_id, avg_pearson in subject_avg_pearsons.items():
         if 1 <= sub_id <= 71:
-            group_1_71.append(pearson)
+            group_1_71.append(avg_pearson)
         elif 72 <= sub_id <= 85:
-            group_72_85.append(pearson)
+            group_72_85.append(avg_pearson)
+
+    # 所有受试者的平均Pearson
+    all_subject_pearsons = list(subject_avg_pearsons.values())
 
     summary = {
         'checkpoint': checkpoint_name,
@@ -389,25 +417,27 @@ def save_results(results, args_dict, output_dir, checkpoint_name, save_predictio
             'd_model': args_dict.get('d_model'),
         },
         'overall': {
-            'num_samples': len(all_pearsons),
-            'mean_pearson': float(np.mean(all_pearsons)),
-            'std_pearson': float(np.std(all_pearsons)),
-            'median_pearson': float(np.median(all_pearsons)),
-            'min_pearson': float(np.min(all_pearsons)),
-            'max_pearson': float(np.max(all_pearsons)),
+            'num_subjects': len(all_subject_pearsons),
+            'num_recordings': len(results['samples']),
+            'mean_pearson': float(np.mean(all_subject_pearsons)),
+            'std_pearson': float(np.std(all_subject_pearsons)),
+            'median_pearson': float(np.median(all_subject_pearsons)),
+            'min_pearson': float(np.min(all_subject_pearsons)),
+            'max_pearson': float(np.max(all_subject_pearsons)),
         },
         'group_1_71': {
-            'num_samples': len(group_1_71),
+            'num_subjects': len(group_1_71),
             'mean_pearson': float(np.mean(group_1_71)) if group_1_71 else 0,
             'std_pearson': float(np.std(group_1_71)) if group_1_71 else 0,
             'median_pearson': float(np.median(group_1_71)) if group_1_71 else 0,
         },
         'group_72_85': {
-            'num_samples': len(group_72_85),
+            'num_subjects': len(group_72_85),
             'mean_pearson': float(np.mean(group_72_85)) if group_72_85 else 0,
             'std_pearson': float(np.std(group_72_85)) if group_72_85 else 0,
             'median_pearson': float(np.median(group_72_85)) if group_72_85 else 0,
         },
+        'per_subject': per_subject_details,  # 每个受试者的详细信息
         'per_sample': [
             {
                 'sample_idx': s['sample_idx'],
@@ -424,27 +454,30 @@ def save_results(results, args_dict, output_dir, checkpoint_name, save_predictio
         json.dump(summary, f, indent=2)
     print(f"✓ 结果已保存到: {json_path}")
 
-    # ========== 绘制箱线图（只生成1-71的图）==========
-    fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+    # ========== 绘制箱线图（只生成1-71的图，显示每个受试者的平均Pearson）==========
+    if not group_1_71:
+        print("警告: 没有1-71号受试者的数据，跳过箱线图生成")
+    else:
+        fig, ax = plt.subplots(1, 1, figsize=(8, 6))
 
-    # 只绘制受试者1-71
-    bp = ax.boxplot([group_1_71], labels=['Subjects 1-71'],
-                     patch_artist=True, showmeans=True,
-                     meanprops=dict(marker='D', markerfacecolor='red', markersize=10),
-                     boxprops=dict(facecolor='lightblue'),
-                     medianprops=dict(color='darkblue', linewidth=2.5))
+        # 只绘制受试者1-71（每个受试者平均后的Pearson）
+        bp = ax.boxplot([group_1_71], labels=['Subjects 1-71'],
+                         patch_artist=True, showmeans=True,
+                         meanprops=dict(marker='D', markerfacecolor='red', markersize=10),
+                         boxprops=dict(facecolor='lightblue'),
+                         medianprops=dict(color='darkblue', linewidth=2.5))
 
-    ax.set_ylabel('Pearson Correlation', fontsize=14)
-    ax.set_title(f'Test Set Performance (Subjects 1-71)\nn={len(group_1_71)}, μ={np.mean(group_1_71):.4f}',
-                  fontsize=15, fontweight='bold')
-    ax.grid(True, alpha=0.3, axis='y')
+        ax.set_ylabel('Pearson Correlation (per subject avg)', fontsize=14)
+        ax.set_title(f'Test Set Performance (Subjects 1-71)\nn_subjects={len(group_1_71)}, μ={np.mean(group_1_71):.4f}',
+                      fontsize=15, fontweight='bold')
+        ax.grid(True, alpha=0.3, axis='y')
 
-    plt.tight_layout()
+        plt.tight_layout()
 
-    boxplot_path = os.path.join(output_dir, 'pearson_boxplot_1_71.png')
-    plt.savefig(boxplot_path, dpi=150, bbox_inches='tight')
-    plt.close()
-    print(f"✓ 箱线图（1-71）已保存到: {boxplot_path}")
+        boxplot_path = os.path.join(output_dir, 'pearson_boxplot_1_71.png')
+        plt.savefig(boxplot_path, dpi=150, bbox_inches='tight')
+        plt.close()
+        print(f"✓ 箱线图（1-71）已保存到: {boxplot_path}")
 
     # ========== 保存预测结果（可选）==========
     if save_predictions:
@@ -465,19 +498,22 @@ def save_results(results, args_dict, output_dir, checkpoint_name, save_predictio
     print(f"\n{'='*80}")
     print("评估结果汇总")
     print(f"{'='*80}")
-    print(f"\n【全部样本 (1-85)】")
-    print(f"  样本数: {summary['overall']['num_samples']}")
-    print(f"  平均Pearson: {summary['overall']['mean_pearson']:.4f} ± {summary['overall']['std_pearson']:.4f}")
+    print(f"\n【全部受试者 (1-85)】")
+    print(f"  受试者数: {summary['overall']['num_subjects']}")
+    print(f"  总recordings数: {summary['overall']['num_recordings']}")
+    print(f"  平均Pearson (per subject): {summary['overall']['mean_pearson']:.4f} ± {summary['overall']['std_pearson']:.4f}")
     print(f"  中位数: {summary['overall']['median_pearson']:.4f}")
     print(f"  范围: [{summary['overall']['min_pearson']:.4f}, {summary['overall']['max_pearson']:.4f}]")
 
     print(f"\n【受试者1-71】")
-    print(f"  样本数: {summary['group_1_71']['num_samples']}")
-    print(f"  平均Pearson: {summary['group_1_71']['mean_pearson']:.4f} ± {summary['group_1_71']['std_pearson']:.4f}")
+    print(f"  受试者数: {summary['group_1_71']['num_subjects']}")
+    print(f"  平均Pearson (per subject): {summary['group_1_71']['mean_pearson']:.4f} ± {summary['group_1_71']['std_pearson']:.4f}")
+    print(f"  中位数: {summary['group_1_71']['median_pearson']:.4f}")
 
     print(f"\n【受试者72-85】")
-    print(f"  样本数: {summary['group_72_85']['num_samples']}")
-    print(f"  平均Pearson: {summary['group_72_85']['mean_pearson']:.4f} ± {summary['group_72_85']['std_pearson']:.4f}")
+    print(f"  受试者数: {summary['group_72_85']['num_subjects']}")
+    print(f"  平均Pearson (per subject): {summary['group_72_85']['mean_pearson']:.4f} ± {summary['group_72_85']['std_pearson']:.4f}")
+    print(f"  中位数: {summary['group_72_85']['median_pearson']:.4f}")
     print(f"{'='*80}\n")
 
     return summary

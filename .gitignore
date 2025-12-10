@@ -6,3 +6,4 @@ __pychche__
 *.md
 test_predictions*
 test_results_eval
+comparison_results
