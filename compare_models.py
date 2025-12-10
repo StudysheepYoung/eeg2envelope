@@ -22,7 +22,7 @@ def load_result_json(json_path):
 
     Returns:
         model_name: 模型名称
-        subject_pearsons_1_71: 受试者1-71的平均Pearson列表
+        subject_data: list of dict with keys ['subject_id', 'pearson']
         mean_pearson: 平均值
     """
     with open(json_path, 'r') as f:
@@ -33,29 +33,36 @@ def load_result_json(json_path):
 
     # 提取受试者1-71的数据
     per_subject = data.get('per_subject', [])
-    subject_pearsons_1_71 = []
+    subject_data = []
 
     for subject_info in per_subject:
         sub_id = subject_info['subject_id']
-        if 1 <= sub_id <= 71:
-            subject_pearsons_1_71.append(subject_info['avg_pearson'])
+        if 1 <= sub_id <= 85:  # 提取所有受试者（1-85）用于混合得分
+            subject_data.append({
+                'subject_id': sub_id,
+                'pearson': subject_info['avg_pearson']
+            })
 
     # 如果没有per_subject，尝试从per_sample重建（兼容旧格式）
-    if not subject_pearsons_1_71 and 'per_sample' in data:
+    if not subject_data and 'per_sample' in data:
         subject_dict = {}
         for sample in data['per_sample']:
             sub_id = sample['subject_id']
-            if 1 <= sub_id <= 71:
+            if 1 <= sub_id <= 85:
                 if sub_id not in subject_dict:
                     subject_dict[sub_id] = []
                 subject_dict[sub_id].append(sample['pearson'])
 
         # 计算每个受试者的平均
-        subject_pearsons_1_71 = [np.mean(pearsons) for pearsons in subject_dict.values()]
+        for sub_id in sorted(subject_dict.keys()):
+            subject_data.append({
+                'subject_id': sub_id,
+                'pearson': np.mean(subject_dict[sub_id])
+            })
 
-    mean_pearson = np.mean(subject_pearsons_1_71) if subject_pearsons_1_71 else 0
+    mean_pearson = np.mean([s['pearson'] for s in subject_data]) if subject_data else 0
 
-    return model_name, subject_pearsons_1_71, mean_pearson
+    return model_name, subject_data, mean_pearson
 
 
 def find_all_test_results():
@@ -111,7 +118,7 @@ def compute_cohens_d(x, y):
 
 def statistical_comparison(all_data, output_dir='comparison_results'):
     """
-    对所有模型进行成对的统计显著性检验
+    对所有模型进行成对的统计显著性检验，并计算混合得分
 
     Args:
         all_data: list of dict with keys ['model_name', 'subject_pearsons', 'mean_pearson', 'source']
@@ -188,6 +195,62 @@ def statistical_comparison(all_data, output_dir='comparison_results'):
     print("  0.2 ≤ |d| < 0.5: 中等效应")
     print("  0.5 ≤ |d| < 0.8: 大效应")
     print("  |d| ≥ 0.8: 非常大效应")
+    print(f"{'='*80}\n")
+
+    # ========== 计算混合得分 ==========
+    print(f"\n{'='*80}")
+    print("混合得分 (综合评估)")
+    print(f"{'='*80}")
+    print("计算公式: 混合得分 = (受试者1-71平均分 × 2/3) + (受试者72-85平均分 × 1/3)\n")
+
+    mixed_scores_data = []
+    for data in all_data:
+        model_name = data['model_name']
+        subject_data = data.get('subject_data', [])
+
+        if not subject_data:
+            print(f"警告: {model_name} 缺少subject_data，跳过混合得分计算")
+            continue
+
+        # 分离受试者1-71和72-85
+        group_1_71 = [s['pearson'] for s in subject_data if 1 <= s['subject_id'] <= 71]
+        group_72_85 = [s['pearson'] for s in subject_data if 72 <= s['subject_id'] <= 85]
+
+        # 计算各组平均值
+        mean_1_71 = np.mean(group_1_71) if group_1_71 else 0
+        mean_72_85 = np.mean(group_72_85) if group_72_85 else 0
+
+        # 计算混合得分
+        if group_72_85:
+            mixed_score = (mean_1_71 * 2/3) + (mean_72_85 * 1/3)
+        else:
+            # 如果没有72-85的数据，只用1-71的平均值
+            mixed_score = mean_1_71
+
+        mixed_scores_data.append({
+            'Model': model_name,
+            'Mean (Subjects 1-71)': f"{mean_1_71:.4f}",
+            'Mean (Subjects 72-85)': f"{mean_72_85:.4f}",
+            'Mixed Score': f"{mixed_score:.4f}",
+            'N (1-71)': len(group_1_71),
+            'N (72-85)': len(group_72_85)
+        })
+
+    # 创建DataFrame并按混合得分排序
+    mixed_df = pd.DataFrame(mixed_scores_data)
+    mixed_df = mixed_df.sort_values(by='Mixed Score', ascending=False,
+                                     key=lambda x: x.astype(float))
+
+    # 保存到CSV
+    mixed_csv_path = os.path.join(output_dir, 'mixed_scores.csv')
+    mixed_df.to_csv(mixed_csv_path, index=False)
+    print(f"✓ 混合得分已保存到: {mixed_csv_path}\n")
+
+    # 打印表格
+    print(mixed_df.to_string(index=False))
+    print(f"\n说明:")
+    print("  - 混合得分综合考虑了常规受试者(1-71)和新受试者(72-85)的表现")
+    print("  - 权重: 1-71占2/3, 72-85占1/3")
     print(f"{'='*80}\n")
 
     return comparison_df
@@ -300,7 +363,7 @@ def plot_comparison(all_data, output_dir='comparison_results'):
     # 添加图例
     from matplotlib.patches import Patch
     legend_elements = [
-        Patch(facecolor='lightcoral', label='HappyQuokka (Conformer)'),
+        Patch(facecolor='lightcoral', label='Conformer Model'),
         Patch(facecolor='lightblue', label='ADT Baselines'),
         Patch(facecolor='white', edgecolor='white', label='Significance: *** p<0.001, ** p<0.01, * p<0.05')
     ]
@@ -371,24 +434,29 @@ def main():
     all_data = []
     for r in result_files:
         try:
-            model_name, subject_pearsons, mean_pearson = load_result_json(r['json_path'])
+            model_name, subject_data, mean_pearson = load_result_json(r['json_path'])
 
-            if len(subject_pearsons) == 0:
-                print(f"警告: {model_name} 没有受试者1-71的数据，跳过")
+            if len(subject_data) == 0:
+                print(f"警告: {model_name} 没有受试者1-85的数据，跳过")
                 continue
 
             # 如果是ADT模型（不是所有ADT来源的模型），给所有Pearson值加0.02
             if r['model_name'] == 'ADT':
-                subject_pearsons = [p + 0.02 for p in subject_pearsons]
-                mean_pearson = np.mean(subject_pearsons)
-                print(f"✓ {model_name}: {len(subject_pearsons)} 个受试者, 平均Pearson = {mean_pearson:.4f} (已加0.02)")
+                subject_data = [{**s, 'pearson': s['pearson'] + 0.02} for s in subject_data]
+                mean_pearson = np.mean([s['pearson'] for s in subject_data])
+                print(f"✓ {model_name}: {len(subject_data)} 个受试者, 平均Pearson = {mean_pearson:.4f} (已加0.02)")
             else:
-                print(f"✓ {model_name}: {len(subject_pearsons)} 个受试者, 平均Pearson = {mean_pearson:.4f}")
+                print(f"✓ {model_name}: {len(subject_data)} 个受试者, 平均Pearson = {mean_pearson:.4f}")
+
+            # 提取Pearson值列表供绘图使用（只用1-71）
+            subject_pearsons = [s['pearson'] for s in subject_data if 1 <= s['subject_id'] <= 71]
+            mean_pearson_1_71 = np.mean(subject_pearsons) if subject_pearsons else 0
 
             all_data.append({
                 'model_name': r['model_name'],
-                'subject_pearsons': subject_pearsons,
-                'mean_pearson': mean_pearson,
+                'subject_data': subject_data,  # 保留完整的subject_id和pearson信息（1-85）
+                'subject_pearsons': subject_pearsons,  # 用于绘图（只有1-71）
+                'mean_pearson': mean_pearson_1_71,  # 1-71的平均值
                 'source': r['source']
             })
 
