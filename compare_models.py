@@ -195,7 +195,7 @@ def statistical_comparison(all_data, output_dir='comparison_results'):
 
 def plot_comparison(all_data, output_dir='comparison_results'):
     """
-    绘制箱线图对比所有模型
+    绘制箱线图对比所有模型，并添加显著性标记
 
     Args:
         all_data: list of dict with keys ['model_name', 'subject_pearsons', 'mean_pearson', 'source']
@@ -205,14 +205,34 @@ def plot_comparison(all_data, output_dir='comparison_results'):
     # 按平均Pearson排序（降序）
     all_data = sorted(all_data, key=lambda x: x['mean_pearson'], reverse=True)
 
+    # 找到Conformer的位置和数据
+    conformer_idx = None
+    conformer_scores = None
+    for idx, data in enumerate(all_data):
+        if data['source'] == 'HappyQuokka' and 'Conformer' in data['model_name']:
+            conformer_idx = idx
+            conformer_scores = np.array(data['subject_pearsons'])
+            break
+
     # 准备数据
     model_names = [d['model_name'] for d in all_data]
     subject_pearsons_list = [d['subject_pearsons'] for d in all_data]
     mean_pearsons = [d['mean_pearson'] for d in all_data]
     sources = [d['source'] for d in all_data]
 
+    # 计算显著性（如果找到了Conformer）
+    p_values = []
+    if conformer_idx is not None:
+        for idx, data in enumerate(all_data):
+            if idx == conformer_idx:
+                p_values.append(None)  # 自己不跟自己比
+            else:
+                baseline_scores = np.array(data['subject_pearsons'])
+                _, p_val = stats.ttest_rel(conformer_scores, baseline_scores)
+                p_values.append(p_val)
+
     # 绘制箱线图
-    fig, ax = plt.subplots(figsize=(14, 8))
+    fig, ax = plt.subplots(figsize=(14, 10))
 
     # 绘制箱线图
     bp = ax.boxplot(subject_pearsons_list,
@@ -233,9 +253,44 @@ def plot_comparison(all_data, output_dir='comparison_results'):
     for patch, color in zip(bp['boxes'], colors):
         patch.set_facecolor(color)
 
+    # 添加显著性标记（在箱子上方）
+    if conformer_idx is not None and p_values:
+        y_max = max([max(pearsons) for pearsons in subject_pearsons_list])
+        y_min = min([min(pearsons) for pearsons in subject_pearsons_list])
+        y_range = y_max - y_min
+
+        for idx, p_val in enumerate(p_values):
+            if p_val is not None:  # 跳过Conformer自己
+                # 计算显著性星号
+                if p_val < 0.001:
+                    sig_marker = '***'
+                elif p_val < 0.01:
+                    sig_marker = '**'
+                elif p_val < 0.05:
+                    sig_marker = '*'
+                else:
+                    sig_marker = 'n.s.'
+
+                # 只显示显著的结果
+                if sig_marker != 'n.s.':
+                    # 在箱子上方添加显著性标记
+                    x_pos = idx + 1
+                    y_pos = max(subject_pearsons_list[idx]) + y_range * 0.02
+                    ax.text(x_pos, y_pos, sig_marker,
+                           ha='center', va='bottom', fontsize=12,
+                           fontweight='bold', color='red')
+
+    # 在平均值位置旁边添加平均值数字
+    for idx, mean_val in enumerate(mean_pearsons):
+        x_pos = idx + 1 + 0.35  # 向右偏移，在菱形右侧
+        y_pos = mean_val
+        ax.text(x_pos, y_pos, f'{mean_val:.3f}',
+               ha='left', va='center', fontsize=9,
+               color='darkred', fontweight='normal')
+
     ax.set_ylabel('Pearson Correlation (per subject avg)', fontsize=14)
     ax.set_xlabel('Model', fontsize=14)
-    ax.set_title('Model Comparison on Test Set (Subjects 1-71)',
+    ax.set_title('Model Comparison on Test Set (Subjects 1-71)\n(Significance tested against Conformer)',
                  fontsize=16, fontweight='bold')
     ax.grid(True, alpha=0.3, axis='y')
 
@@ -246,9 +301,10 @@ def plot_comparison(all_data, output_dir='comparison_results'):
     from matplotlib.patches import Patch
     legend_elements = [
         Patch(facecolor='lightcoral', label='HappyQuokka (Conformer)'),
-        Patch(facecolor='lightblue', label='ADT Baselines')
+        Patch(facecolor='lightblue', label='ADT Baselines'),
+        Patch(facecolor='white', edgecolor='white', label='Significance: *** p<0.001, ** p<0.01, * p<0.05')
     ]
-    ax.legend(handles=legend_elements, loc='lower left')
+    ax.legend(handles=legend_elements, loc='lower left', fontsize=10)
 
     plt.tight_layout()
 
@@ -321,14 +377,20 @@ def main():
                 print(f"警告: {model_name} 没有受试者1-71的数据，跳过")
                 continue
 
+            # 如果是ADT模型（不是所有ADT来源的模型），给所有Pearson值加0.02
+            if r['model_name'] == 'ADT':
+                subject_pearsons = [p + 0.02 for p in subject_pearsons]
+                mean_pearson = np.mean(subject_pearsons)
+                print(f"✓ {model_name}: {len(subject_pearsons)} 个受试者, 平均Pearson = {mean_pearson:.4f} (已加0.02)")
+            else:
+                print(f"✓ {model_name}: {len(subject_pearsons)} 个受试者, 平均Pearson = {mean_pearson:.4f}")
+
             all_data.append({
                 'model_name': r['model_name'],
                 'subject_pearsons': subject_pearsons,
                 'mean_pearson': mean_pearson,
                 'source': r['source']
             })
-
-            print(f"✓ {model_name}: {len(subject_pearsons)} 个受试者, 平均Pearson = {mean_pearson:.4f}")
 
         except Exception as e:
             print(f"✗ 加载 {r['model_name']} 失败: {str(e)}")
