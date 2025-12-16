@@ -8,3 +8,6 @@ test_predictions*
 test_results_eval
 comparison_results
 useless
+ablation_plots
+ablation_results
+quick_test_results
