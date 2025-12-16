@@ -61,18 +61,41 @@ parser.add_argument('--grad_log_interval', type=int, default=100, help='gradient
 
 # Conformer-specific parameters
 parser.add_argument('--conv_kernel_size', type=int, default=31, help='kernel size for Conformer convolution module')
-parser.add_argument('--use_relative_pos', type=bool, default=True, help='use relative positional encoding in attention')
-parser.add_argument('--use_macaron_ffn', type=bool, default=True, help='use Macaron-style FFN in Conformer')
-parser.add_argument('--use_sinusoidal_pos', type=bool, default=False, help='use additional sinusoidal positional encoding')
+# Use action with default=True means the value is True unless the negative flag is used
+parser.add_argument('--use_relative_pos', action='store_true', dest='use_relative_pos', help='use relative positional encoding in attention (default: True)')
+parser.add_argument('--no_relative_pos', action='store_false', dest='use_relative_pos', help='disable relative positional encoding')
+parser.set_defaults(use_relative_pos=True)
+
+parser.add_argument('--use_macaron_ffn', action='store_true', dest='use_macaron_ffn', help='use Macaron-style FFN in Conformer (default: True)')
+parser.add_argument('--no_macaron_ffn', action='store_false', dest='use_macaron_ffn', help='disable Macaron-style FFN')
+parser.set_defaults(use_macaron_ffn=True)
+
+parser.add_argument('--use_sinusoidal_pos', action='store_true', default=False, help='use additional sinusoidal positional encoding')
 
 # ============ v2 改进参数 ============
-parser.add_argument('--use_gated_residual', type=bool, default=True, help='use gated residual connection')
-parser.add_argument('--use_mlp_head', type=bool, default=True, help='use MLP output head instead of single linear')
+parser.add_argument('--use_gated_residual', action='store_true', dest='use_gated_residual', help='use gated residual connection (default: True)')
+parser.add_argument('--no_gated_residual', action='store_false', dest='use_gated_residual', help='disable gated residual connection')
+parser.set_defaults(use_gated_residual=True)
+
+parser.add_argument('--use_mlp_head', action='store_true', dest='use_mlp_head', help='use MLP output head instead of single linear (default: True)')
+parser.add_argument('--no_mlp_head', action='store_false', dest='use_mlp_head', help='disable MLP output head')
+parser.set_defaults(use_mlp_head=True)
+
 parser.add_argument('--gradient_scale', type=float, default=1.0, help='gradient scaling factor for Conformer layers')
-parser.add_argument('--skip_cnn', type=bool, default=True, help='skip CNN feature extraction, use raw EEG directly')
-parser.add_argument('--use_se', type=bool, default=True, help='use SE channel attention module (independent control)')
+
+parser.add_argument('--skip_cnn', action='store_true', dest='skip_cnn', help='skip CNN feature extraction, use raw EEG directly (default: True)')
+parser.add_argument('--no_skip_cnn', action='store_false', dest='skip_cnn', help='enable CNN feature extraction')
+parser.set_defaults(skip_cnn=True)
+
+parser.add_argument('--use_se', action='store_true', dest='use_se', help='use SE channel attention module (default: True)')
+parser.add_argument('--no_se', action='store_false', dest='use_se', help='disable SE channel attention')
+parser.set_defaults(use_se=True)
+
 # LLRD (Layer-wise Learning Rate Decay) 参数
-parser.add_argument('--use_llrd', type=bool, default=True, help='use layer-wise learning rate decay')
+parser.add_argument('--use_llrd', action='store_true', dest='use_llrd', help='use layer-wise learning rate decay (default: True)')
+parser.add_argument('--no_llrd', action='store_false', dest='use_llrd', help='disable layer-wise learning rate decay')
+parser.set_defaults(use_llrd=True)
+
 parser.add_argument('--llrd_front_scale', type=float, default=1.0, help='LR scale for front layers (CNN, SE, early Conformer)')
 parser.add_argument('--llrd_back_scale', type=float, default=3.0, help='LR scale for back layers (late Conformer, gated_residual)')
 parser.add_argument('--llrd_output_scale', type=float, default=0.5, help='LR scale for output head')

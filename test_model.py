@@ -118,7 +118,7 @@ def load_checkpoint_and_create_model(checkpoint_path, device):
         use_gated_residual=args_dict.get('use_gated_residual', True),
         use_mlp_head=args_dict.get('use_mlp_head', True),
         gradient_scale=args_dict.get('gradient_scale', 1.0),
-        skip_cnn=args_dict.get('skip_cnn', False),
+        skip_cnn=args_dict.get('skip_cnn', True),  # 修正：默认值应该是True（与训练脚本一致）
         use_se=args_dict.get('use_se', True),
     ).to(device)
 
