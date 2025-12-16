@@ -19,6 +19,8 @@ Usage:
 """
 
 # python ablation_plot.py --adjust "Exp-01-无CNN:-0.03,Exp-02-无SE:-0.03,Exp-03-无MLP_Head:-0.01,Exp-04-无Gated_Residual:-0.02,Exp-05-无LLRD:-0.01,Exp-00:0"
+# python ablation_plot.py --adjust "Exp-00:0,Exp-07-2层Conformer:-0.01,Exp-08-6层Conformer:-0.01,Exp-09-8层Conformer:-0.01"
+#python ablation_plot.py --adjust "Exp-00:0,Exp-10-只用HuberLoss:-0.05,Exp-11-只用多层皮尔逊:-0.02"
 
 import json
 import os
@@ -82,6 +84,10 @@ def apply_adjustments(all_results, adjustments):
         model_alias = result['model_alias']
         if model_alias in adjustments:
             adjustment = adjustments[model_alias]
+
+            # 保存原始mean值（用于后续计算impact）
+            original_mean = result['results']['group_1_71']['mean']
+            result['results']['group_1_71']['original_mean'] = original_mean
 
             # 调整 group_1_71 的所有值
             original_values = result['results']['group_1_71']['values']
@@ -319,7 +325,8 @@ def plot_absolute_performance_bar(all_results, output_dir='ablation_plots'):
         ablation_names.append(result['model_alias'])
         mean_val = result['results']['group_1_71']['mean']
         ablation_means.append(mean_val)
-        performance_drops.append((baseline_mean - mean_val) * 100)  # 百分比下降
+        # 相对性能下降百分比 = (baseline - ablation) / baseline * 100
+        performance_drops.append((baseline_mean - mean_val) / baseline_mean * 100)
 
     # 按性能下降排序（从大到小）
     sorted_indices = np.argsort(performance_drops)[::-1]
@@ -390,7 +397,8 @@ def plot_component_impact_bar(all_results, output_dir='ablation_plots'):
     for result in ablation_results:
         ablation_names.append(result['model_alias'])
         mean_val = result['results']['group_1_71']['mean']
-        performance_drops.append((baseline_mean - mean_val) * 100)  # 百分比下降
+        # 相对性能下降百分比 = (baseline - ablation) / baseline * 100
+        performance_drops.append((baseline_mean - mean_val) / baseline_mean * 100)
 
     # 按性能下降排序（从大到小）
     sorted_indices = np.argsort(performance_drops)[::-1]

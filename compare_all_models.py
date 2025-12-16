@@ -88,7 +88,7 @@ def find_all_test_results():
                 })
 
     # 2. HappyQuokka的Conformer模型
-    conformer_json = '/RAID5/projects/likeyang/happy/HappyQuokka_system_for_EEG_Challenge/test_results_eval/conformer_v2_nlayer4_dmodel256_nhead4_gscale1.0_dist_20251203_154629_best_model/test_results.json'
+    conformer_json = '/RAID5/projects/likeyang/happy/HappyQuokka_system_for_EEG_Challenge/test_results_eval/conformer_v2_nlayer4_dmodel256_nhead4_gscale1.0_dist_20251216_000230_best_model/test_results.json'
 
     if os.path.exists(conformer_json):
         results.append({
