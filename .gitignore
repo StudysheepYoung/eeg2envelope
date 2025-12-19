@@ -11,3 +11,5 @@ useless
 ablation_plots
 ablation_results
 quick_test_results
+cross_subject_analysis
+prediction_analysis
