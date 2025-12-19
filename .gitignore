@@ -3,7 +3,6 @@ train.sh
 data
 *.pyc
 __pychche__
-*.md
 test_predictions*
 test_results_eval
 comparison_results
@@ -13,3 +12,6 @@ ablation_results
 quick_test_results
 cross_subject_analysis
 prediction_analysis
+MODEL_ARCHITECTURE_CN.md
+MODEL_ARCHITECTURE.md
+SCRIPTS_QUICK_REFERENCE.md
