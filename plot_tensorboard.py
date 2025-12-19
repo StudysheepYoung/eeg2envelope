@@ -163,7 +163,7 @@ def main():
     )
 
     # 必需参数
-    parser.add_argument('--log_dir', type=str, default="/RAID5/projects/likeyang/happy/HappyQuokka_system_for_EEG_Challenge/test_results/conformer_v2_nlayer4_dmodel256_nhead4_gscale1.0_dist_20251203_154629",
+    parser.add_argument('--log_dir', type=str, default="/RAID5/projects/likeyang/happy/NeuroConformer/test_results/conformer_v2_nlayer4_dmodel256_nhead4_gscale1.0_dist_20251203_154629",
                         help='TensorBoard日志目录')
     parser.add_argument('--scalar', type=str, default="Validation/pearson",
                         help='标量名称（如 "Validation/pearson"）')

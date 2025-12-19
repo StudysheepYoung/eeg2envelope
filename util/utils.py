@@ -53,7 +53,7 @@ def get_parser():
     parser.add_argument('--eval_interval', type=int, default=10, help='评估间隔（epoch数）')
     parser.add_argument('--viz_sample_idx', type=int, default=0, help='用于可视化的固定测试样本索引')
     parser.add_argument('--grad_log_interval', type=int, default=100, help='记录梯度信息的间隔步数')
-    parser.add_argument('--dataset_folder',type= str, default="/RAID5/projects/likeyang/happy/HappyQuokka_system_for_EEG_Challenge/data", help='write down your absolute path of dataset folder')
+    parser.add_argument('--dataset_folder',type= str, default="/RAID5/projects/likeyang/happy/NeuroConformer/data", help='write down your absolute path of dataset folder')
     parser.add_argument('--split_folder',type= str, default="split_data")
     parser.add_argument('--experiment_folder',default=None, help='write down experiment name')
     # 添加分布式训练相关参数

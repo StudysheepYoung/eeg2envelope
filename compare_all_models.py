@@ -1,6 +1,6 @@
 """
 对比多个模型的测试结果并生成箱线图
-比较ADT项目的各个baseline模型与HappyQuokka的Conformer模型
+比较ADT项目的各个baseline模型与NeuroConformer模型
 
 Usage:
     python compare_models.py
@@ -87,14 +87,14 @@ def find_all_test_results():
                     'source': 'ADT'
                 })
 
-    # 2. HappyQuokka的Conformer模型
-    conformer_json = '/RAID5/projects/likeyang/happy/HappyQuokka_system_for_EEG_Challenge/test_results_eval/conformer_v2_nlayer4_dmodel256_nhead4_gscale1.0_dist_20251216_000230_best_model/test_results.json'
+    # 2. NeuroConformer模型
+    conformer_json = '/RAID5/projects/likeyang/happy/NeuroConformer/test_results_eval/conformer_v2_nlayer4_dmodel256_nhead4_gscale1.0_dist_20251216_000230_best_model/test_results.json'
 
     if os.path.exists(conformer_json):
         results.append({
             'model_name': 'Conformer',
             'json_path': conformer_json,
-            'source': 'HappyQuokka'
+            'source': 'NeuroConformer'
         })
 
     return results
@@ -133,7 +133,7 @@ def statistical_comparison(all_data, output_dir='comparison_results'):
     # 找到Conformer模型
     conformer_data = None
     for data in all_data:
-        if data['source'] == 'HappyQuokka' and 'Conformer' in data['model_name']:
+        if data['source'] == 'NeuroConformer' and 'Conformer' in data['model_name']:
             conformer_data = data
             break
 
@@ -272,7 +272,7 @@ def plot_comparison(all_data, output_dir='comparison_results'):
     conformer_idx = None
     conformer_scores = None
     for idx, data in enumerate(all_data):
-        if data['source'] == 'HappyQuokka' and 'Conformer' in data['model_name']:
+        if data['source'] == 'NeuroConformer' and 'Conformer' in data['model_name']:
             conformer_idx = idx
             conformer_scores = np.array(data['subject_pearsons'])
             break
@@ -308,7 +308,7 @@ def plot_comparison(all_data, output_dir='comparison_results'):
     # 为不同来源的模型设置不同颜色
     colors = []
     for source in sources:
-        if source == 'HappyQuokka':
+        if source == 'NeuroConformer':
             colors.append('lightcoral')  # Conformer用浅红色
         else:
             colors.append('lightblue')  # ADT baselines用浅蓝色

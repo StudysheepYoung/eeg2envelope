@@ -362,10 +362,10 @@ def main():
 
     # 数据和输出
     parser.add_argument('--split_data_dir', type=str,
-                       default='/RAID5/projects/likeyang/happy/HappyQuokka_system_for_EEG_Challenge/data/split_data',
+                       default='/RAID5/projects/likeyang/happy/NeuroConformer/data/split_data',
                        help='split_data目录')
     parser.add_argument('--test_data_dir', type=str,
-                       default='/RAID5/projects/likeyang/happy/HappyQuokka_system_for_EEG_Challenge/data/test_data',
+                       default='/RAID5/projects/likeyang/happy/NeuroConformer/data/test_data',
                        help='test_data目录')
     parser.add_argument('--output_dir', type=str, default='ablation_results',
                        help='输出目录')

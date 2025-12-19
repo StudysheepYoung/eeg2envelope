@@ -42,10 +42,10 @@ def parse_args():
 
     # 数据集路径（固定）
     parser.add_argument('--split_data_dir', type=str,
-                        default='/RAID5/projects/likeyang/happy/HappyQuokka_system_for_EEG_Challenge/data/split_data',
+                        default='/RAID5/projects/likeyang/happy/NeuroConformer/data/split_data',
                         help='split_data目录路径（包含test_-_开头的文件）')
     parser.add_argument('--test_data_dir', type=str,
-                        default='/RAID5/projects/likeyang/happy/HappyQuokka_system_for_EEG_Challenge/data/test_data',
+                        default='/RAID5/projects/likeyang/happy/NeuroConformer/data/test_data',
                         help='test_data目录路径（包含sub-72到sub-85的文件）')
 
     # 输出相关

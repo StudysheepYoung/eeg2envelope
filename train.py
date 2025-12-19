@@ -103,7 +103,7 @@ parser.add_argument('--llrd_output_scale', type=float, default=0.5, help='LR sca
 parser.add_argument('--output_grad_scale', type=float, default=1, help='scale factor for output head gradients after backward')
 # ===================================
 
-parser.add_argument('--dataset_folder', type=str, default="/RAID5/projects/likeyang/happy/HappyQuokka_system_for_EEG_Challenge/data", help='write down your absolute path of dataset folder')
+parser.add_argument('--dataset_folder', type=str, default="/RAID5/projects/likeyang/happy/NeuroConformer/data", help='write down your absolute path of dataset folder')
 parser.add_argument('--split_folder', type=str, default="split_data")
 parser.add_argument('--experiment_folder', default=None, help='write down experiment name')
 
