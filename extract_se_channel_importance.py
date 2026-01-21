@@ -183,7 +183,7 @@ def visualize_outputs(visual_dir: Path,
             if vmax < 1e-8:
                 vmax = 1.0
             values = values / vmax
-            values = values ** 0.5  # gamma < 1 boosts higher values
+            values = values ** 0.35  # stronger gamma correction to highlight highs
 
         fig, ax = plt.subplots(figsize=(5, 4))
         im, _ = mne.viz.plot_topomap(values, info, axes=ax, show=False,
