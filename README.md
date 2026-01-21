@@ -114,6 +114,27 @@ python test_model.py --checkpoint test_results/your_experiment/best_model.pt --g
 python test_model.py --checkpoint_dir test_results/ --pattern "*/best_model.pt"
 ```
 
+### SE通道重要性分析
+
+对启用 SE 且 `skip_cnn=True` 的模型提取 256 维 SE 权重并反推 64 通道 EEG 重要性，仅使用 `data/split_data` 中的 `test_-_*` 记录：
+
+```bash
+python extract_se_channel_importance.py \
+    --checkpoint test_results/Exp-00-baseline/best_model.pt \
+    --output_dir se_channel_analysis \
+    --gpu 0 \
+    --save_per_sample        # 可选：保存每个 recording 的权重
+```
+
+脚本会在 `se_channel_analysis/<Exp-##>` 下生成：
+
+- `raw_se_weights/`、`eeg_importance_64d/`：每条记录的 256/64 维权重（可选保存）
+- `aggregated/`：`global_avg_64d.npy`、`per_subject_avg.npz`、`statistics.json` 等汇总文件
+- `brain_region_analysis/`：按照 BioSemi-64 脑区分组的强度统计
+- `visualizations/`：64 通道柱状图、Top-10、脑区热力图、受试者差异以及（若环境安装 MNE）脑地形图
+
+> 提示：如需禁用可视化可加 `--no_visualize`；生成脑地形图需要 `mne` 包与 BioSemi-64 布局。
+
 ### 可视化
 
 从TensorBoard日志生成训练曲线：

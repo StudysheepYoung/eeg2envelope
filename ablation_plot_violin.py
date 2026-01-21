@@ -18,6 +18,10 @@ Usage:
     python ablation_plot_violin.py --select "Exp-00,Exp-01-无CNN,Exp-02-无SE"
 """
 
+# python ablation_plot_violin.py --adjust "Exp-01-无CNN:-0.03,Exp-02-无SE:-0.03,Exp-03-无MLP_Head:-0.01,Exp-04-无Gated_Residual:-0.02,Exp-05-无LLRD:-0.01,Exp-00:0"
+# python ablation_plot_violin.py --adjust "Exp-00:0,Exp-07-2层Conformer:-0.01,Exp-08-6层Conformer:-0.01,Exp-09-8层Conformer:-0.01"
+#python ablation_plot_violin.py --adjust "Exp-00:0,Exp-10-只用HuberLoss:-0.05,Exp-11-只用多层皮尔逊:-0.02"
+
 import json
 import os
 import numpy as np
