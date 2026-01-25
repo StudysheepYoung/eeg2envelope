@@ -15,22 +15,7 @@ from pathlib import Path
 from scipy import stats
 import seaborn as sns
 
-
-# 用来统一展示名称，逻辑判断仍依赖内部的model_key
-MODEL_NAME_OVERRIDES = {
-    'CONFORMER': 'NeuroConformer',
-    'NEUROCONFORMER': 'NeuroConformer',
-    'ADT': 'ADT Network',
-    'ADT NETWORK': 'ADT Network',
-    'EEGNET' : 'EEGNet'
-}
-
-
-def get_display_name(model_key):
-    """返回用于绘图和日志的模型展示名称"""
-    if model_key is None:
-        return 'Unknown'
-    return MODEL_NAME_OVERRIDES.get(model_key.upper(), model_key)
+from plotting_colors import get_model_color, get_display_name
 
 
 def load_result_json(json_path):
@@ -302,7 +287,6 @@ def plot_comparison(all_data, output_dir='comparison_results'):
     model_names = [d['model_name'] for d in all_data]
     subject_pearsons_list = [d['subject_pearsons'] for d in all_data]
     mean_pearsons = [d['mean_pearson'] for d in all_data]
-    sources = [d['source'] for d in all_data]
 
     # 计算显著性（如果找到了NeuroConformer）
     p_values = []
@@ -326,13 +310,9 @@ def plot_comparison(all_data, output_dir='comparison_results'):
                      meanprops=dict(marker='D', markerfacecolor='red', markersize=8),
                      medianprops=dict(color='darkblue', linewidth=2))
 
-    # 为不同来源的模型设置不同颜色
-    colors = []
-    for source in sources:
-        if source == 'NeuroConformer':
-            colors.append('lightcoral')  # NeuroConformer用浅红色
-        else:
-            colors.append('lightblue')  # ADT baselines用浅蓝色
+    # 为不同来源的模型设置对应颜色（与plot_cross_subject_analysis统一）
+    colors = [get_model_color(data['model_name'], data['source'])
+              for data in all_data]
 
     for patch, color in zip(bp['boxes'], colors):
         patch.set_facecolor(color)

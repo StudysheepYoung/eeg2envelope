@@ -17,6 +17,8 @@ import matplotlib.pyplot as plt
 from scipy import stats
 import argparse
 
+from plotting_colors import get_model_color, get_display_name
+
 
 def load_test_results(json_path):
     """加载test_results.json"""
@@ -63,8 +65,6 @@ def plot_cdf_only(train_subjects, test_subjects,
 
     ax.set_xlabel('Pearson Correlation', fontsize=14, fontweight='bold')
     ax.set_ylabel('Cumulative Probability', fontsize=14, fontweight='bold')
-    ax.set_title('Cumulative Distribution Function (CDF)\nSubjects 1-71',
-                fontsize=16, fontweight='bold', pad=20)
     ax.legend(fontsize=12, loc='lower right')
     ax.grid(True, alpha=0.3, linestyle='--')
 
@@ -381,7 +381,7 @@ def find_all_test_results():
     查找所有的test_results.json文件（来自compare_all_models.py）
 
     Returns:
-        results: list of dict with keys ['model_name', 'json_path', 'source', 'add_bias']
+        results: list of dict with keys ['model_key', 'model_name', 'json_path', 'source', 'add_bias']
     """
     results = []
 
@@ -393,9 +393,11 @@ def find_all_test_results():
             json_path = os.path.join(adt_test_results_dir, model_dir, 'test_results.json')
             if os.path.exists(json_path):
                 # 只有ADT模型加0.02偏移量
-                add_bias = 0.02 if model_dir.upper() == 'ADT' else 0.0
+                model_key = model_dir.upper()
+                add_bias = 0.02 if model_key == 'ADT' else 0.0
                 results.append({
-                    'model_name': model_dir.upper(),
+                    'model_key': model_key,
+                    'model_name': get_display_name(model_key),
                     'json_path': json_path,
                     'source': 'ADT',
                     'add_bias': add_bias
@@ -405,8 +407,10 @@ def find_all_test_results():
     conformer_json = '/RAID5/projects/likeyang/happy/NeuroConformer/test_results_eval/conformer_v2_nlayer4_dmodel256_nhead4_gscale1.0_dist_20251216_000230_best_model/test_results.json'
 
     if os.path.exists(conformer_json):
+        model_key = 'NEUROCONFORMER'
         results.append({
-            'model_name': 'Conformer',
+            'model_key': model_key,
+            'model_name': get_display_name(model_key),
             'json_path': conformer_json,
             'source': 'NeuroConformer',
             'add_bias': 0.0
@@ -450,12 +454,6 @@ def plot_cdf_for_model(train_subjects, model_name, output_path,
 
     ax.set_xlabel('Pearson Correlation', fontsize=14, fontweight='bold')
     ax.set_ylabel('Cumulative Probability', fontsize=14, fontweight='bold')
-
-    # 标题中显示模型名称
-    title = f'Cumulative Distribution Function (CDF)\n{model_name} - Subjects 1-71'
-    if add_bias != 0.0:
-        title += f' (bias +{add_bias:.2f})'
-    ax.set_title(title, fontsize=16, fontweight='bold', pad=20)
 
     ax.legend(fontsize=12, loc='lower right')
     ax.grid(True, alpha=0.3, linestyle='--')
@@ -542,15 +540,10 @@ def plot_all_models_combined_cdf(result_files, output_path, figsize=(14, 9)):
         output_path: 输出路径
         figsize: 图表大小
     """
-    # 配色方案 - 为不同来源使用不同颜色
-    adt_colors = ['#3498DB', '#2ECC71', '#9B59B6', '#1ABC9C', '#34495E', '#16A085']
-    conformer_color = '#E74C3C'
-
     fig, ax = plt.subplots(figsize=figsize)
 
     # 存储统计信息
     stats_info = []
-    adt_idx = 0
 
     for r in result_files:
         try:
@@ -569,25 +562,24 @@ def plot_all_models_combined_cdf(result_files, output_path, figsize=(14, 9)):
             train_cdf = np.arange(1, len(train_sorted)+1) / len(train_sorted)
 
             # 选择颜色和样式
+            color = get_model_color(r['model_key'], r['source'])
             if r['source'] == 'NeuroConformer':
-                color = conformer_color
                 linewidth = 3.5
                 alpha = 0.95
-                zorder = 10  # 让Conformer在最上层
+                zorder = 10  # 让NeuroConformer在最上层
             else:
-                color = adt_colors[adt_idx % len(adt_colors)]
-                adt_idx += 1
                 linewidth = 2.5
                 alpha = 0.75
                 zorder = 5
 
             # 绘制CDF曲线
-            ax.plot(train_sorted, train_cdf, linewidth=linewidth, label=r['model_name'],
+            display_name = get_display_name(r['model_name'])
+            ax.plot(train_sorted, train_cdf, linewidth=linewidth, label=display_name,
                     marker='o', markersize=4, alpha=alpha, color=color, zorder=zorder)
 
             # 保存统计信息
             mean_val = np.mean(train_pearsons)
-            stats_info.append(f"{r['model_name']}: μ={mean_val:.3f}")
+            stats_info.append(f"{display_name}: μ={mean_val:.3f}")
 
         except Exception as e:
             print(f"⚠️  警告: 加载 {r['model_name']} 失败: {str(e)}")
@@ -595,8 +587,6 @@ def plot_all_models_combined_cdf(result_files, output_path, figsize=(14, 9)):
 
     ax.set_xlabel('Pearson Correlation', fontsize=14, fontweight='bold')
     ax.set_ylabel('Cumulative Probability', fontsize=14, fontweight='bold')
-    ax.set_title('CDF Comparison - All Models\n(Subjects 1-71)',
-                fontsize=16, fontweight='bold', pad=20)
     ax.legend(fontsize=11, loc='lower right', framealpha=0.9, ncol=2)
     ax.grid(True, alpha=0.3, linestyle='--')
     ax.set_ylim([0, 1.05])
@@ -663,7 +653,8 @@ def generate_all_models_cdf(output_dir='cdf_plots_all_models'):
                 continue
 
             # 生成CDF图
-            output_path = os.path.join(output_dir, f"cdf_{r['model_name'].lower()}.png")
+            safe_key = r.get('model_key', r['model_name']).lower().replace(' ', '_')
+            output_path = os.path.join(output_dir, f"cdf_{safe_key}.png")
             plot_cdf_for_model(
                 train_subjects=train_subjects,
                 model_name=r['model_name'],
@@ -739,8 +730,6 @@ def plot_grouped_cdf(ablation_results_dict, group_keys, group_name, output_path,
 
     ax.set_xlabel('Pearson Correlation', fontsize=13, fontweight='bold')
     ax.set_ylabel('Cumulative Probability', fontsize=13, fontweight='bold')
-    ax.set_title(f'CDF Comparison - {group_name}\n(Subjects 1-71)',
-                fontsize=15, fontweight='bold', pad=20)
     ax.legend(fontsize=11, loc='lower right', framealpha=0.9)
     ax.grid(True, alpha=0.3, linestyle='--')
     ax.set_ylim([0, 1.05])
