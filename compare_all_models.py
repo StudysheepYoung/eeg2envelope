@@ -16,6 +16,23 @@ from scipy import stats
 import seaborn as sns
 
 
+# 用来统一展示名称，逻辑判断仍依赖内部的model_key
+MODEL_NAME_OVERRIDES = {
+    'CONFORMER': 'NeuroConformer',
+    'NEUROCONFORMER': 'NeuroConformer',
+    'ADT': 'ADT Network',
+    'ADT NETWORK': 'ADT Network',
+    'EEGNET' : 'EEGNet'
+}
+
+
+def get_display_name(model_key):
+    """返回用于绘图和日志的模型展示名称"""
+    if model_key is None:
+        return 'Unknown'
+    return MODEL_NAME_OVERRIDES.get(model_key.upper(), model_key)
+
+
 def load_result_json(json_path):
     """
     加载单个模型的test_results.json
@@ -70,7 +87,7 @@ def find_all_test_results():
     查找所有的test_results.json文件
 
     Returns:
-        results: list of dict with keys ['model_name', 'json_path', 'source']
+        results: list of dict with keys ['model_key', 'model_name', 'json_path', 'source']
     """
     results = []
 
@@ -81,8 +98,10 @@ def find_all_test_results():
         for model_dir in os.listdir(adt_test_results_dir):
             json_path = os.path.join(adt_test_results_dir, model_dir, 'test_results.json')
             if os.path.exists(json_path):
+                model_key = model_dir.upper()
                 results.append({
-                    'model_name': model_dir.upper(),  # adt -> ADT
+                    'model_key': model_key,
+                    'model_name': get_display_name(model_key),
                     'json_path': json_path,
                     'source': 'ADT'
                 })
@@ -91,8 +110,10 @@ def find_all_test_results():
     conformer_json = '/RAID5/projects/likeyang/happy/NeuroConformer/test_results_eval/conformer_v2_nlayer4_dmodel256_nhead4_gscale1.0_dist_20251216_000230_best_model/test_results.json'
 
     if os.path.exists(conformer_json):
+        model_key = 'NEUROCONFORMER'
         results.append({
-            'model_name': 'Conformer',
+            'model_key': model_key,
+            'model_name': get_display_name(model_key),
             'json_path': conformer_json,
             'source': 'NeuroConformer'
         })
@@ -121,24 +142,24 @@ def statistical_comparison(all_data, output_dir='comparison_results'):
     对所有模型进行成对的统计显著性检验，并计算混合得分
 
     Args:
-        all_data: list of dict with keys ['model_name', 'subject_pearsons', 'mean_pearson', 'source']
+        all_data: list of dict with keys ['model_key', 'model_name', 'subject_pearsons', 'mean_pearson', 'source']
 
     Returns:
         comparison_df: DataFrame包含所有成对比较的统计结果
     """
     print(f"\n{'='*80}")
-    print("统计显著性检验（以Conformer为基准）")
+    print("统计显著性检验（以NeuroConformer为基准）")
     print(f"{'='*80}\n")
 
-    # 找到Conformer模型
+    # 找到NeuroConformer模型
     conformer_data = None
     for data in all_data:
-        if data['source'] == 'NeuroConformer' and 'Conformer' in data['model_name']:
+        if data.get('model_key') == 'NEUROCONFORMER':
             conformer_data = data
             break
 
     if conformer_data is None:
-        print("警告: 未找到Conformer模型，跳过统计检验")
+        print("警告: 未找到NeuroConformer模型，跳过统计检验")
         return None
 
     conformer_scores = np.array(conformer_data['subject_pearsons'])
@@ -146,7 +167,7 @@ def statistical_comparison(all_data, output_dir='comparison_results'):
     comparisons = []
 
     for data in all_data:
-        if data['model_name'] == conformer_data['model_name']:
+        if data['model_key'] == conformer_data['model_key']:
             continue  # 跳过与自己的比较
 
         baseline_scores = np.array(data['subject_pearsons'])
@@ -166,7 +187,7 @@ def statistical_comparison(all_data, output_dir='comparison_results'):
 
         comparisons.append({
             'Baseline Model': data['model_name'],
-            'Conformer Mean': f"{np.mean(conformer_scores):.4f}",
+            'NeuroConformer Mean': f"{np.mean(conformer_scores):.4f}",
             'Baseline Mean': f"{np.mean(baseline_scores):.4f}",
             'Mean Diff': f"{mean_diff:.4f}",
             'Improvement (%)': f"{mean_diff_pct:.1f}%",
@@ -261,18 +282,18 @@ def plot_comparison(all_data, output_dir='comparison_results'):
     绘制箱线图对比所有模型，并添加显著性标记
 
     Args:
-        all_data: list of dict with keys ['model_name', 'subject_pearsons', 'mean_pearson', 'source']
+        all_data: list of dict with keys ['model_key', 'model_name', 'subject_pearsons', 'mean_pearson', 'source']
     """
     os.makedirs(output_dir, exist_ok=True)
 
     # 按平均Pearson排序（降序）
     all_data = sorted(all_data, key=lambda x: x['mean_pearson'], reverse=True)
 
-    # 找到Conformer的位置和数据
+    # 找到NeuroConformer的位置和数据
     conformer_idx = None
     conformer_scores = None
     for idx, data in enumerate(all_data):
-        if data['source'] == 'NeuroConformer' and 'Conformer' in data['model_name']:
+        if data.get('model_key') == 'NEUROCONFORMER':
             conformer_idx = idx
             conformer_scores = np.array(data['subject_pearsons'])
             break
@@ -283,7 +304,7 @@ def plot_comparison(all_data, output_dir='comparison_results'):
     mean_pearsons = [d['mean_pearson'] for d in all_data]
     sources = [d['source'] for d in all_data]
 
-    # 计算显著性（如果找到了Conformer）
+    # 计算显著性（如果找到了NeuroConformer）
     p_values = []
     if conformer_idx is not None:
         for idx, data in enumerate(all_data):
@@ -309,7 +330,7 @@ def plot_comparison(all_data, output_dir='comparison_results'):
     colors = []
     for source in sources:
         if source == 'NeuroConformer':
-            colors.append('lightcoral')  # Conformer用浅红色
+            colors.append('lightcoral')  # NeuroConformer用浅红色
         else:
             colors.append('lightblue')  # ADT baselines用浅蓝色
 
@@ -323,7 +344,7 @@ def plot_comparison(all_data, output_dir='comparison_results'):
         y_range = y_max - y_min
 
         for idx, p_val in enumerate(p_values):
-            if p_val is not None:  # 跳过Conformer自己
+            if p_val is not None:  # 跳过NeuroConformer自己
                 # 计算显著性星号
                 if p_val < 0.001:
                     sig_marker = '***'
@@ -353,7 +374,7 @@ def plot_comparison(all_data, output_dir='comparison_results'):
 
     ax.set_ylabel('Pearson Correlation (per subject avg)', fontsize=14)
     ax.set_xlabel('Model', fontsize=14)
-    ax.set_title('Model Comparison on Test Set (Subjects 1-71)\n(Significance tested against Conformer)',
+    ax.set_title('Model Comparison on Test Set (Subjects 1-71)\n(Significance tested against NeuroConformer)',
                  fontsize=16, fontweight='bold')
     ax.grid(True, alpha=0.3, axis='y')
 
@@ -363,7 +384,7 @@ def plot_comparison(all_data, output_dir='comparison_results'):
     # 添加图例
     from matplotlib.patches import Patch
     legend_elements = [
-        Patch(facecolor='lightcoral', label='Conformer Model'),
+        Patch(facecolor='lightcoral', label='NeuroConformer Model'),
         Patch(facecolor='lightblue', label='ADT Baselines'),
         Patch(facecolor='white', edgecolor='white', label='Significance: *** p<0.001, ** p<0.01, * p<0.05')
     ]
@@ -434,26 +455,27 @@ def main():
     all_data = []
     for r in result_files:
         try:
-            model_name, subject_data, mean_pearson = load_result_json(r['json_path'])
+            _checkpoint_name, subject_data, mean_pearson = load_result_json(r['json_path'])
+            display_name = r['model_name']
 
             if len(subject_data) == 0:
-                print(f"警告: {model_name} 没有受试者1-85的数据，跳过")
+                print(f"警告: {display_name} 没有受试者1-85的数据，跳过")
                 continue
-
             # 如果是ADT模型（不是所有ADT来源的模型），给所有Pearson值加0.02
-            if r['model_name'] == 'ADT':
+            if r['model_key'] == 'ADT':
                 subject_data = [{**s, 'pearson': s['pearson'] + 0.02} for s in subject_data]
                 mean_pearson = np.mean([s['pearson'] for s in subject_data])
-                print(f"✓ {model_name}: {len(subject_data)} 个受试者, 平均Pearson = {mean_pearson:.4f} (已加0.02)")
+                print(f"✓ {display_name}: {len(subject_data)} 个受试者, 平均Pearson = {mean_pearson:.4f} (已加0.02)")
             else:
-                print(f"✓ {model_name}: {len(subject_data)} 个受试者, 平均Pearson = {mean_pearson:.4f}")
+                print(f"✓ {display_name}: {len(subject_data)} 个受试者, 平均Pearson = {mean_pearson:.4f}")
 
             # 提取Pearson值列表供绘图使用（只用1-71）
             subject_pearsons = [s['pearson'] for s in subject_data if 1 <= s['subject_id'] <= 71]
             mean_pearson_1_71 = np.mean(subject_pearsons) if subject_pearsons else 0
 
             all_data.append({
-                'model_name': r['model_name'],
+                'model_key': r['model_key'],
+                'model_name': display_name,
                 'subject_data': subject_data,  # 保留完整的subject_id和pearson信息（1-85）
                 'subject_pearsons': subject_pearsons,  # 用于绘图（只有1-71）
                 'mean_pearson': mean_pearson_1_71,  # 1-71的平均值
