@@ -372,20 +372,16 @@ def plot_comparison(all_data, output_dir='comparison_results'):
                ha='left', va='center', fontsize=9,
                color='darkred', fontweight='normal')
 
-    ax.set_ylabel('Pearson Correlation (per subject avg)', fontsize=14)
+    ax.set_ylabel('Pearson Correlation', fontsize=14)
     ax.set_xlabel('Model', fontsize=14)
-    ax.set_title('Model Comparison on Test Set (Subjects 1-71)\n(Significance tested against NeuroConformer)',
-                 fontsize=16, fontweight='bold')
     ax.grid(True, alpha=0.3, axis='y')
 
     # 旋转x轴标签
-    plt.xticks(rotation=45, ha='right')
+    plt.xticks(rotation=0)
 
     # 添加图例
     from matplotlib.patches import Patch
     legend_elements = [
-        Patch(facecolor='lightcoral', label='NeuroConformer Model'),
-        Patch(facecolor='lightblue', label='ADT Baselines'),
         Patch(facecolor='white', edgecolor='white', label='Significance: *** p<0.001, ** p<0.01, * p<0.05')
     ]
     ax.legend(handles=legend_elements, loc='lower left', fontsize=10)
