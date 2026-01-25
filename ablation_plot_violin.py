@@ -16,6 +16,13 @@ Usage:
 
     # 只绘制指定的模型
     python ablation_plot_violin.py --select "Exp-00,Exp-01-无CNN,Exp-02-无SE"
+
+    # 与指定基准模型做显著性检验并在图上标注
+    python ablation_plot_violin.py --sig_compare_to Exp-00
+
+    # 自定义显著性阈值
+    python ablation_plot_violin.py --sig_compare_to Exp-00 --sig_levels 0.05 0.01 0.001
+
 """
 
 # python ablation_plot_violin.py --adjust "Exp-01-无CNN:-0.03,Exp-02-无SE:-0.03,Exp-03-无MLP_Head:-0.01,Exp-04-无Gated_Residual:-0.02,Exp-05-无LLRD:-0.01,Exp-00:0"
@@ -28,7 +35,27 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import argparse
-from matplotlib.patches import Polygon
+
+# 修改此映射即可在代码中直接重命名横坐标标签
+# 例如: {"Exp-00": "Baseline", "Exp-01-无CNN": "无CNN"}
+X_AXIS_LABEL_MAP = {
+    "Exp-00": "NeuroConformer", 
+    "Exp-01-无CNN": "w/o Convolution Module",
+    "Exp-02-无SE": "w/o SE Block",
+    "Exp-03-无MLP_Head": "w/o MLP Head",
+    "Exp-04-无Gated_Residual": "w/o Global Fusion Mechanism",
+    "Exp-05-无LLRD": "w/o LLRD",
+    "Exp-07-2层Conformer": "2 conformer blocks",
+    "Exp-08-6层Conformer": "6 conformer blocks",
+    "Exp-09-8层Conformer": "8 conformer blocks",
+    "Exp-10-只用HuberLoss": "Huber Loss only",
+    "Exp-11-只用多层皮尔逊": "Multi-scale Pearson Correlation Loss only"
+    }
+
+try:
+    from scipy.stats import ttest_rel
+except ImportError:  # pragma: no cover - SciPy 可能不存在
+    ttest_rel = None
 
 
 def parse_adjustments(adjust_str):
@@ -115,6 +142,92 @@ def apply_adjustments(all_results, adjustments):
     return all_results
 
 
+def format_significance_label(p_value, levels):
+    """根据p值和阈值生成显著性标记"""
+    if p_value is None:
+        return 'n.s.'
+
+    thresholds = sorted(levels, reverse=True)
+    if p_value <= thresholds[2]:
+        return '***'
+    if p_value <= thresholds[1]:
+        return '**'
+    if p_value <= thresholds[0]:
+        return '*'
+    return 'n.s.'
+
+
+def perform_significance_tests(sorted_subject_data_dict, model_names, baseline_model,
+                               significance_levels):
+    """对指定基准模型与其他模型做配对t检验"""
+    if ttest_rel is None:
+        print("\n警告: 未安装 SciPy，无法执行显著性检验。请安装 scipy 后重试。")
+        return None
+
+    if baseline_model not in model_names:
+        print(f"\n警告: 指定的显著性基准 {baseline_model} 不在模型列表中，跳过显著性检验。")
+        return None
+
+    baseline_subjects = sorted_subject_data_dict[baseline_model]
+    significance_results = {}
+
+    print(f"\n进行显著性检验: 与 {baseline_model} 做配对t检验")
+
+    for model in model_names:
+        if model == baseline_model:
+            continue
+
+        target_subjects = sorted_subject_data_dict[model]
+        common_subjects = sorted(set(baseline_subjects.keys()).intersection(target_subjects.keys()))
+
+        if len(common_subjects) < 2:
+            print(f"  - {model}: 共同受试者不足2个，跳过")
+            continue
+
+        baseline_values = np.array([baseline_subjects[sid] for sid in common_subjects], dtype=float)
+        target_values = np.array([target_subjects[sid] for sid in common_subjects], dtype=float)
+
+        test_result = ttest_rel(baseline_values, target_values)
+        p_value = float(test_result.pvalue) if hasattr(test_result, 'pvalue') else float(test_result)
+        label = format_significance_label(p_value, significance_levels)
+
+        significance_results[model] = {
+            'p_value': p_value,
+            'n': len(common_subjects),
+            'label': label
+        }
+
+        print(f"  - {model}: p={p_value:.4e}, n={len(common_subjects)}, 标记={label}")
+
+    if not significance_results:
+        print("  未得到有效的显著性结果")
+
+    return significance_results
+
+
+def annotate_significance(ax, positions, violin_data, model_names, baseline_model,
+                          significance_results):
+    """在图上添加显著性标记"""
+    if not significance_results or baseline_model not in model_names:
+        return
+
+    base_idx = model_names.index(baseline_model)
+    y_offset = max(max(data) for data in violin_data) * 0.03
+
+    ax.text(0.98, 0.98, f'显著性参照: {baseline_model}', transform=ax.transAxes,
+            ha='right', va='top', fontsize=10, color='black')
+
+    for idx, model in enumerate(model_names):
+        if model == baseline_model or model not in significance_results:
+            continue
+
+        result = significance_results[model]
+        label = result['label']
+        text_y = max(violin_data[idx]) + y_offset
+
+        ax.text(positions[idx], text_y, label, ha='center', va='bottom',
+                fontsize=12, color='purple', fontweight='bold')
+
 def load_all_results(results_dir):
     """
     从目录中加载所有推理结果
@@ -147,7 +260,9 @@ def load_all_results(results_dir):
     return all_results
 
 
-def plot_violin_with_lines(all_results, output_dir='ablation_plots'):
+def plot_violin_with_lines(all_results, output_dir='ablation_plots',
+                           sig_compare_to=None, sig_levels=None,
+                           x_label_map=None):
     """
     为所有模型生成小提琴图，并用线条连接同一受试者在不同模型下的表现
     """
@@ -214,14 +329,14 @@ def plot_violin_with_lines(all_results, output_dir='ablation_plots'):
                           widths=0.7)
 
     # 定义颜色列表（循环使用）
-    colors = ['lightblue', 'lightcoral', 'lightgreen', 'lightyellow', 'lightpink',
-              'lavender', 'peachpuff', 'lightcyan', 'wheat', 'thistle']
+    colors = ['#FF6B6B', '#FFB703', '#FB8500', '#219EBC', '#4ECDC4',
+              '#8338EC', '#FF006E', '#06D6A0', '#118AB2', '#F94144']
 
     # 自定义小提琴图样式
     for idx, pc in enumerate(parts['bodies']):
         color = colors[idx % len(colors)]
         pc.set_facecolor(color)
-        pc.set_alpha(0.7)
+        pc.set_alpha(0.9)
         pc.set_edgecolor('black')
         pc.set_linewidth(1.2)
 
@@ -252,17 +367,27 @@ def plot_violin_with_lines(all_results, output_dir='ablation_plots'):
 
     # 设置标签
     ax.set_xticks(positions)
-    ax.set_xticklabels(model_names, rotation=45, ha='right', fontsize=10)
-    ax.set_ylabel('Pearson Correlation (per subject avg)', fontsize=14)
-    ax.set_title(f'Ablation Study: Violin Plot with Subject Trajectories (Subjects 1-71)\nn_models={num_models}, n_subjects={len(all_subject_ids)}',
-                 fontsize=15, fontweight='bold')
+    if x_label_map:
+        display_names = [x_label_map.get(name, name) for name in model_names]
+    else:
+        display_names = model_names
+    ax.set_xticklabels(display_names, rotation=0, ha='center', fontsize=10)
+    ax.set_ylabel('Pearson Correlation', fontsize=14)
     ax.grid(True, alpha=0.3, axis='y')
 
     # 在每个小提琴图上方标注平均值
+    y_offset = max([max(data) for data in violin_data]) * 0.01
     for pos, mean_val in zip(positions, mean_values):
-        y_offset = max([max(data) for data in violin_data]) * 0.01
         ax.text(pos, mean_val + y_offset, f'{mean_val:.4f}',
                 ha='center', va='bottom', fontsize=9, color='darkred', fontweight='bold')
+
+    significance_results = None
+    if sig_compare_to:
+        default_sig_levels = sig_levels if sig_levels else (0.05, 0.01, 0.001)
+        significance_results = perform_significance_tests(
+            sorted_subject_data_dict, model_names, sig_compare_to, default_sig_levels)
+        annotate_significance(ax, positions, violin_data, model_names,
+                              sig_compare_to, significance_results)
 
     plt.tight_layout()
 
@@ -313,6 +438,10 @@ def main():
                        help='对特定实验结果进行调整，格式: "Exp-01:+0.02,Exp-02:-0.01"。只绘制提到的模型。')
     parser.add_argument('--select', type=str, default=None,
                        help='只绘制指定的模型，格式: "Exp-00,Exp-01,Exp-02"')
+    parser.add_argument('--sig_compare_to', type=str, default=None,
+                        help='将指定模型作为显著性基准，与其他模型做配对t检验并在图中标注')
+    parser.add_argument('--sig_levels', type=float, nargs=3, metavar=('P1', 'P2', 'P3'),
+                        help='显著性阈值，默认 0.05 0.01 0.001 (对应 *, **, ***)')
 
     args = parser.parse_args()
 
@@ -364,7 +493,15 @@ def main():
     print("="*80)
     print("生成小提琴图（连接同一受试者）...")
     print("="*80)
-    plot_violin_with_lines(all_results, args.output_dir)
+    sig_levels = tuple(args.sig_levels) if args.sig_levels else None
+    if X_AXIS_LABEL_MAP:
+        print("\n应用自定义横坐标名称映射：")
+        for src, dst in X_AXIS_LABEL_MAP.items():
+            print(f"  {src} -> {dst}")
+    plot_violin_with_lines(all_results, args.output_dir,
+                           sig_compare_to=args.sig_compare_to,
+                           sig_levels=sig_levels,
+                           x_label_map=X_AXIS_LABEL_MAP)
 
     print("\n" + "="*80)
     print("完成！")
