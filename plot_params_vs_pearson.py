@@ -8,16 +8,24 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
+from plotting_colors import get_model_color
+
 # 模型数据
 models_data = {
-    'Linear': {'params': 2_049, 'pearson': 0.113, 'color': '#8B4513', 'marker': 'o'},
-    'EEGNet': {'params': 802_158, 'pearson': 0.159, 'color': '#FF8C00', 'marker': 's'},
-    'FCNN': {'params': 23_528_435, 'pearson': 0.108, 'color': '#4169E1', 'marker': '^'},
-    'VLAAI': {'params': 12_881_409, 'pearson': 0.138, 'color': '#32CD32', 'marker': 'v'},
-    'ADT Network': {'params': 527_088, 'pearson': 0.166, 'color': '#FF1493', 'marker': 'D'},
-    'HappyQuokka': {'params': 1_275_073, 'pearson': 0.180, 'color': '#9370DB', 'marker': 'p'},
-    'Ours (NeuroConformer)': {'params': 7_544_389, 'pearson': 0.239, 'color': '#DC143C', 'marker': '*'},
+    'Linear': {'params': 2_049, 'pearson': 0.113, 'marker': 'o', 'color_key': 'LINEAR'},
+    'EEGNet': {'params': 802_158, 'pearson': 0.159, 'marker': 's', 'color_key': 'EEGNET'},
+    'FCNN': {'params': 23_528_435, 'pearson': 0.108, 'marker': '^', 'color_key': 'FCNN'},
+    'VLAAI': {'params': 12_881_409, 'pearson': 0.138, 'marker': 'v', 'color_key': 'VLAAI'},
+    'ADT Network': {'params': 527_088, 'pearson': 0.166, 'marker': 'D', 'color_key': 'ADT'},
+    'HappyQuokka': {'params': 1_275_073, 'pearson': 0.180, 'marker': 'p', 'color_key': 'HAPPYQUOKKA'},
+    'Ours (NeuroConformer)': {'params': 7_544_389, 'pearson': 0.239, 'marker': '*', 'color_key': 'NEUROCONFORMER'},
 }
+
+
+def get_color(model_name):
+    """Return consistent color for the given model name."""
+    color_key = models_data[model_name].get('color_key', model_name)
+    return get_model_color(color_key)
 
 def plot_params_vs_pearson(output_dir='comparison_results'):
     """
@@ -29,7 +37,7 @@ def plot_params_vs_pearson(output_dir='comparison_results'):
     model_names = list(models_data.keys())
     params = [models_data[m]['params'] for m in model_names]
     pearsons = [models_data[m]['pearson'] for m in model_names]
-    colors = [models_data[m]['color'] for m in model_names]
+    colors = [get_color(m) for m in model_names]
     markers = [models_data[m]['marker'] for m in model_names]
 
     # 创建图表
@@ -59,8 +67,6 @@ def plot_params_vs_pearson(output_dir='comparison_results'):
     # 添加标签和标题
     ax.set_xlabel('Number of Parameters (log scale)', fontsize=14, fontweight='bold')
     ax.set_ylabel('Pearson Correlation Coefficient', fontsize=14, fontweight='bold')
-    ax.set_title('Model Performance vs. Parameter Count\n(Speech Envelope Reconstruction from EEG)',
-                 fontsize=16, fontweight='bold', pad=20)
 
     # 设置y轴范围，留出空间
     ax.set_ylim([0.09, 0.26])
@@ -123,8 +129,6 @@ def plot_params_vs_pearson(output_dir='comparison_results'):
     ax.set_axisbelow(True)
     ax.set_xlabel('Number of Parameters (log scale)', fontsize=14, fontweight='bold')
     ax.set_ylabel('Pearson Correlation Coefficient', fontsize=14, fontweight='bold')
-    ax.set_title('Model Performance vs. Parameter Count\n(Speech Envelope Reconstruction from EEG)',
-                 fontsize=16, fontweight='bold', pad=20)
     ax.set_ylim([0.09, 0.26])
     ax.legend(loc='upper left', fontsize=11, framealpha=0.95,
              ncol=1, columnspacing=1.0, handletextpad=0.5)
@@ -166,7 +170,7 @@ def plot_params_vs_pearson_with_table(output_dir='comparison_results'):
     model_names = list(models_data.keys())
     params = [models_data[m]['params'] for m in model_names]
     pearsons = [models_data[m]['pearson'] for m in model_names]
-    colors = [models_data[m]['color'] for m in model_names]
+    colors = [get_color(m) for m in model_names]
     markers = [models_data[m]['marker'] for m in model_names]
 
     # 按Pearson排序
@@ -196,8 +200,6 @@ def plot_params_vs_pearson_with_table(output_dir='comparison_results'):
     ax1.set_axisbelow(True)
     ax1.set_xlabel('Number of Parameters (log scale)', fontsize=13, fontweight='bold')
     ax1.set_ylabel('Pearson Correlation', fontsize=13, fontweight='bold')
-    ax1.set_title('Model Performance vs. Parameter Count',
-                  fontsize=15, fontweight='bold', pad=15)
     ax1.set_ylim([0.09, 0.26])
     ax1.legend(loc='upper left', fontsize=10, framealpha=0.95, ncol=2)
 
