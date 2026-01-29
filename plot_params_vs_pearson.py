@@ -7,6 +7,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+from matplotlib.font_manager import FontProperties
 
 from plotting_colors import get_model_color
 
@@ -48,14 +49,14 @@ def plot_params_vs_pearson(output_dir='comparison_results'):
         # 特殊标记Ours模型
         if 'Ours' in model:
             ax.scatter(params[i], pearsons[i],
-                      c=colors[i], marker=markers[i], s=500,
-                      edgecolors='black', linewidths=2.5,
-                      label=model, zorder=5, alpha=0.9)
+                      c=colors[i], marker=markers[i], s=650,
+                      edgecolors='black', linewidths=2.8,
+                      label=model, zorder=5, alpha=0.92)
         else:
             ax.scatter(params[i], pearsons[i],
-                      c=colors[i], marker=markers[i], s=200,
-                      edgecolors='black', linewidths=1.5,
-                      label=model, zorder=3, alpha=0.8)
+                      c=colors[i], marker=markers[i], s=280,
+                      edgecolors='black', linewidths=1.8,
+                      label=model, zorder=3, alpha=0.85)
 
     # 设置对数刻度（参数量范围很大）
     ax.set_xscale('log')
@@ -65,15 +66,20 @@ def plot_params_vs_pearson(output_dir='comparison_results'):
     ax.set_axisbelow(True)
 
     # 添加标签和标题
-    ax.set_xlabel('Number of Parameters (log scale)', fontsize=14, fontweight='bold')
-    ax.set_ylabel('Pearson Correlation Coefficient', fontsize=14, fontweight='bold')
+    ax.set_xlabel('Number of Parameters (log scale)', fontsize=20, fontweight='bold')
+    ax.set_ylabel('Pearson Correlation Coefficient', fontsize=20, fontweight='bold')
+    ax.tick_params(axis='both', labelsize=20)
+    for tick in ax.get_xticklabels() + ax.get_yticklabels():
+        tick.set_fontweight('bold')
 
     # 设置y轴范围，留出空间
     ax.set_ylim([0.09, 0.26])
 
     # 添加图例（放在左上角）
-    ax.legend(loc='upper left', fontsize=11, framealpha=0.95,
-             ncol=1, columnspacing=1.0, handletextpad=0.5)
+    legend_font = FontProperties(weight='bold', size=20)
+    ax.legend(loc='upper left', framealpha=0.95,
+              ncol=1, columnspacing=1.0, handletextpad=0.5,
+              prop=legend_font)
 
     # 在每个点旁边添加数值标注
     for i, model in enumerate(model_names):
@@ -81,13 +87,13 @@ def plot_params_vs_pearson(output_dir='comparison_results'):
         if 'Ours' in model:
             offset_x = 1.15
             offset_y = 0.005
-            fontsize = 10
+            fontsize = 22
             fontweight = 'bold'
         else:
             offset_x = 1.15
             offset_y = 0.003
-            fontsize = 9
-            fontweight = 'normal'
+            fontsize = 22
+            fontweight = 'bold'
 
         # 添加Pearson值标注
         ax.annotate(f'{pearsons[i]:.3f}',
@@ -115,35 +121,39 @@ def plot_params_vs_pearson(output_dir='comparison_results'):
     for i, model in enumerate(model_names):
         if 'Ours' in model:
             ax.scatter(params[i], pearsons[i],
-                      c=colors[i], marker=markers[i], s=500,
-                      edgecolors='black', linewidths=2.5,
-                      label=model, zorder=5, alpha=0.9)
+                      c=colors[i], marker=markers[i], s=650,
+                      edgecolors='black', linewidths=2.8,
+                      label=model, zorder=5, alpha=0.92)
         else:
             ax.scatter(params[i], pearsons[i],
-                      c=colors[i], marker=markers[i], s=200,
-                      edgecolors='black', linewidths=1.5,
-                      label=model, zorder=3, alpha=0.8)
+                      c=colors[i], marker=markers[i], s=280,
+                      edgecolors='black', linewidths=1.8,
+                      label=model, zorder=3, alpha=0.85)
 
     ax.set_xscale('log')
     ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
     ax.set_axisbelow(True)
-    ax.set_xlabel('Number of Parameters (log scale)', fontsize=14, fontweight='bold')
-    ax.set_ylabel('Pearson Correlation Coefficient', fontsize=14, fontweight='bold')
+    ax.set_xlabel('Number of Parameters (log scale)', fontsize=16, fontweight='bold')
+    ax.set_ylabel('Pearson Correlation Coefficient', fontsize=16, fontweight='bold')
+    ax.tick_params(axis='both', labelsize=13)
+    for tick in ax.get_xticklabels() + ax.get_yticklabels():
+        tick.set_fontweight('bold')
     ax.set_ylim([0.09, 0.26])
-    ax.legend(loc='upper left', fontsize=11, framealpha=0.95,
-             ncol=1, columnspacing=1.0, handletextpad=0.5)
+    ax.legend(loc='upper left', framealpha=0.95,
+              ncol=1, columnspacing=1.0, handletextpad=0.5,
+              prop=legend_font)
 
     for i, model in enumerate(model_names):
         if 'Ours' in model:
             offset_x = 1.15
             offset_y = 0.005
-            fontsize = 10
+            fontsize = 18
             fontweight = 'bold'
         else:
             offset_x = 1.15
             offset_y = 0.003
-            fontsize = 9
-            fontweight = 'normal'
+            fontsize = 16
+            fontweight = 'bold'
 
         ax.annotate(f'{pearsons[i]:.3f}',
                    xy=(params[i], pearsons[i]),
