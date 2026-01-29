@@ -16,8 +16,46 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy import stats
 import argparse
+from matplotlib.font_manager import FontProperties
 
 from plotting_colors import get_model_color, get_display_name
+
+
+def _normalize_key(name):
+    if not name:
+        return ''
+    return str(name).strip().upper()
+
+
+DEFAULT_MARKER_STYLE = {
+    'marker': 'o',
+    'markersize': 6,
+    'markeredgewidth': 1.2
+}
+
+
+MARKER_STYLE_OVERRIDES = {
+    'LINEAR': {'marker': 'o', 'markersize': 12, 'markeredgewidth': 1.2},
+    'EEGNET': {'marker': 's', 'markersize': 12, 'markeredgewidth': 1.2},
+    'FCNN': {'marker': '^', 'markersize': 12, 'markeredgewidth': 1.2},
+    'VLAAI': {'marker': 'v', 'markersize': 12, 'markeredgewidth': 1.2},
+    'ADT': {'marker': 'D', 'markersize': 12, 'markeredgewidth': 1.2},
+    'ADT NETWORK': {'marker': 'D', 'markersize': 12, 'markeredgewidth': 1.2},
+    'HAPPYQUOKKA': {'marker': 'p', 'markersize': 12, 'markeredgewidth': 1.2},
+    'HAPPYOUOKKA': {'marker': 'p', 'markersize': 12, 'markeredgewidth': 1.2},
+    'NEUROCONFORMER': {'marker': '*', 'markersize': 15, 'markeredgewidth': 1.5,
+                       'markeredgecolor': '#1b1b1b', 'markevery': 2},
+    'CONFORMER': {'marker': '*', 'markersize': 11, 'markeredgewidth': 1.5,
+                  'markeredgecolor': '#1b1b1b', 'markevery': 2}
+}
+
+
+def get_marker_style(model_key):
+    key = _normalize_key(model_key)
+    style = DEFAULT_MARKER_STYLE.copy()
+    if key in MARKER_STYLE_OVERRIDES:
+        style.update(MARKER_STYLE_OVERRIDES[key])
+    return style
 
 
 def load_test_results(json_path):
@@ -572,10 +610,28 @@ def plot_all_models_combined_cdf(result_files, output_path, figsize=(14, 9)):
                 alpha = 0.75
                 zorder = 5
 
+            marker_style = get_marker_style(r['model_key'])
+            marker_markevery = marker_style.get('markevery')
+            if marker_markevery is None:
+                marker_markevery = max(len(train_sorted) // 35, 1)
+
             # 绘制CDF曲线
             display_name = get_display_name(r['model_name'])
-            ax.plot(train_sorted, train_cdf, linewidth=linewidth, label=display_name,
-                    marker='o', markersize=4, alpha=alpha, color=color, zorder=zorder)
+            ax.plot(
+                train_sorted,
+                train_cdf,
+                linewidth=linewidth,
+                label=display_name,
+                alpha=alpha,
+                color=color,
+                zorder=zorder,
+                marker=marker_style.get('marker', 'o'),
+                markersize=marker_style.get('markersize', 6),
+                markeredgewidth=marker_style.get('markeredgewidth', 1.2),
+                markeredgecolor=marker_style.get('markeredgecolor', color),
+                markerfacecolor=marker_style.get('markerfacecolor', color),
+                markevery=marker_markevery
+            )
 
             # 保存统计信息
             mean_val = np.mean(train_pearsons)
@@ -585,17 +641,22 @@ def plot_all_models_combined_cdf(result_files, output_path, figsize=(14, 9)):
             print(f"⚠️  警告: 加载 {r['model_name']} 失败: {str(e)}")
             continue
 
-    ax.set_xlabel('Pearson Correlation', fontsize=14, fontweight='bold')
-    ax.set_ylabel('Cumulative Probability', fontsize=14, fontweight='bold')
-    ax.legend(fontsize=11, loc='lower right', framealpha=0.9, ncol=2)
+    ax.set_xlabel('Pearson Correlation', fontsize=20, fontweight='bold')
+    ax.set_ylabel('Cumulative Probability', fontsize=20, fontweight='bold')
+    ax.tick_params(axis='both', labelsize=18)
+    for tick in ax.get_xticklabels() + ax.get_yticklabels():
+        tick.set_fontweight('bold')
+
+    legend_font = FontProperties(weight='bold', size=20)
+    ax.legend(loc='lower right', framealpha=0.9, ncol=2, prop=legend_font)
     ax.grid(True, alpha=0.3, linestyle='--')
     ax.set_ylim([0, 1.05])
 
     # 添加统计信息文本框
     stats_text = '\n'.join(stats_info)
     ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
-            fontsize=9, verticalalignment='top',
-            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.85))
+            fontsize=16, fontweight='bold', verticalalignment='top',
+            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.85, edgecolor='none'))
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')

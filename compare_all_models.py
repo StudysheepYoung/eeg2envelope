@@ -14,6 +14,7 @@ import pandas as pd
 from pathlib import Path
 from scipy import stats
 import seaborn as sns
+from matplotlib.font_manager import FontProperties
 
 from plotting_colors import get_model_color, get_display_name
 
@@ -341,30 +342,34 @@ def plot_comparison(all_data, output_dir='comparison_results'):
                     x_pos = idx + 1
                     y_pos = max(subject_pearsons_list[idx]) + y_range * 0.02
                     ax.text(x_pos, y_pos, sig_marker,
-                           ha='center', va='bottom', fontsize=12,
-                           fontweight='bold', color='red')
+                            ha='center', va='bottom', fontsize=14,
+                            fontweight='bold', color='red')
 
     # 在平均值位置旁边添加平均值数字
     for idx, mean_val in enumerate(mean_pearsons):
-        x_pos = idx + 1 + 0.35  # 向右偏移，在菱形右侧
-        y_pos = mean_val
+        x_pos = idx + 0.8
+        y_pos = mean_val + 0.015
         ax.text(x_pos, y_pos, f'{mean_val:.3f}',
-               ha='left', va='center', fontsize=9,
-               color='darkred', fontweight='normal')
+                ha='left', va='center', fontsize=18,
+                color='black', fontweight='bold')
 
-    ax.set_ylabel('Pearson Correlation', fontsize=14)
-    ax.set_xlabel('Model', fontsize=14)
+    ax.set_ylabel('Pearson Correlation', fontsize=20, fontweight='bold')
     ax.grid(True, alpha=0.3, axis='y')
 
     # 旋转x轴标签
     plt.xticks(rotation=0)
+    plt.setp(ax.get_xticklabels(), fontsize=14, fontweight='bold')
+    for label in ax.get_yticklabels():
+        label.set_fontsize(14)
+        label.set_fontweight('bold')
 
     # 添加图例
     from matplotlib.patches import Patch
     legend_elements = [
         Patch(facecolor='white', edgecolor='white', label='Significance: *** p<0.001, ** p<0.01, * p<0.05')
     ]
-    ax.legend(handles=legend_elements, loc='lower left', fontsize=10)
+    legend_font = FontProperties(weight='bold', size=18)
+    ax.legend(handles=legend_elements, loc='lower left', prop=legend_font)
 
     plt.tight_layout()
 
