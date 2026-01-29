@@ -39,6 +39,7 @@ import argparse
 # 修改此映射即可在代码中直接重命名横坐标标签
 # 例如: {"Exp-00": "Baseline", "Exp-01-无CNN": "无CNN"}
 X_AXIS_LABEL_MAP = {
+    # "Exp-00": "Composite Loss",
     "Exp-00": "NeuroConformer", 
     "Exp-01-无CNN": "w/o Convolution Module",
     "Exp-02-无SE": "w/o SE Block",
@@ -211,18 +212,17 @@ def annotate_significance(ax, positions, violin_data, model_names, baseline_mode
     if not significance_results or baseline_model not in model_names:
         return
 
-    base_idx = model_names.index(baseline_model)
-    y_offset = max(max(data) for data in violin_data) * 0.03
+    valid_max_values = [max(data) for data in violin_data if len(data) > 0]
+    if not valid_max_values:
+        return
 
-    ax.text(0.98, 0.98, f'显著性参照: {baseline_model}', transform=ax.transAxes,
-            ha='right', va='top', fontsize=10, color='black')
+    y_offset = max(valid_max_values) * 0.04
 
     for idx, model in enumerate(model_names):
         if model == baseline_model or model not in significance_results:
             continue
 
-        result = significance_results[model]
-        label = result['label']
+        label = significance_results[model].get('label', 'n.s.')
         text_y = max(violin_data[idx]) + y_offset
 
         ax.text(positions[idx], text_y, label, ha='center', va='bottom',
@@ -494,12 +494,21 @@ def main():
     print("生成小提琴图（连接同一受试者）...")
     print("="*80)
     sig_levels = tuple(args.sig_levels) if args.sig_levels else None
+    sig_baseline = args.sig_compare_to
+    available_aliases = {result['model_alias'] for result in all_results}
+    if sig_baseline is None and 'Exp-00' in available_aliases:
+        sig_baseline = 'Exp-00'
+        print("\n未指定显著性参照，默认使用 Exp-00 作为基准进行检验")
+    elif sig_baseline and sig_baseline not in available_aliases:
+        print(f"\n警告: 指定的显著性参照 {sig_baseline} 不在结果中，将跳过显著性检验")
+        sig_baseline = None
+
     if X_AXIS_LABEL_MAP:
         print("\n应用自定义横坐标名称映射：")
         for src, dst in X_AXIS_LABEL_MAP.items():
             print(f"  {src} -> {dst}")
     plot_violin_with_lines(all_results, args.output_dir,
-                           sig_compare_to=args.sig_compare_to,
+                           sig_compare_to=sig_baseline,
                            sig_levels=sig_levels,
                            x_label_map=X_AXIS_LABEL_MAP)
 

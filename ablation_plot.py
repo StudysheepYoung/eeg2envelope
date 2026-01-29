@@ -29,6 +29,41 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import argparse
 
+try:
+    from ablation_plot_violin import X_AXIS_LABEL_MAP as VIOLIN_X_AXIS_LABEL_MAP
+except ImportError:
+    VIOLIN_X_AXIS_LABEL_MAP = {}
+
+# 与小提琴图脚本保持一致的颜色循环，确保不同图表间的配色统一
+VIOLIN_COLOR_PALETTE = ['#FF6B6B', '#FFB703', '#FB8500', '#219EBC', '#4ECDC4',
+                        '#8338EC', '#FF006E', '#06D6A0', '#118AB2', '#F94144']
+
+
+def map_model_name(model_alias):
+    """使用小提琴图脚本中的映射转换横坐标别名"""
+    return VIOLIN_X_AXIS_LABEL_MAP.get(model_alias, model_alias)
+
+
+def build_color_map(all_results):
+    """为每个模型分配与小提琴图一致的颜色"""
+    if not all_results:
+        return {}
+
+    model_aliases = []
+    mean_values = []
+    for result in all_results:
+        model_aliases.append(result['model_alias'])
+        mean_values.append(result['results']['group_1_71']['mean'])
+
+    sorted_indices = np.argsort(mean_values)[::-1]
+    color_map = {}
+    for color_idx, idx in enumerate(sorted_indices):
+        alias = model_aliases[idx]
+        color = VIOLIN_COLOR_PALETTE[color_idx % len(VIOLIN_COLOR_PALETTE)]
+        color_map[alias] = color
+
+    return color_map
+
 
 def parse_adjustments(adjust_str):
     """
@@ -181,10 +216,9 @@ def plot_unified_boxplot(all_results, output_dir='ablation_plots'):
 
     # 设置标签
     ax.set_xticks(positions)
-    ax.set_xticklabels(model_names, rotation=45, ha='right', fontsize=10)
+    display_names = [map_model_name(name) for name in model_names]
+    ax.set_xticklabels(display_names, rotation=0, ha='center', fontsize=10)
     ax.set_ylabel('Pearson Correlation (per subject avg)', fontsize=14)
-    ax.set_title(f'Ablation Study: Model Comparison on Test Set (Subjects 1-71)\nn_models={num_models}',
-                 fontsize=15, fontweight='bold')
     ax.grid(True, alpha=0.3, axis='y')
 
     # 在每个箱线图上方标注平均值
@@ -339,7 +373,7 @@ def plot_absolute_performance_bar(all_results, output_dir='ablation_plots'):
 
     # 绝对性能柱状图
     x = np.arange(len(ablation_names) + 1)
-    all_names = ['Baseline (Exp-00)'] + ablation_names
+    all_aliases = ['Exp-00'] + ablation_names
     all_means = [baseline_mean] + ablation_means
     colors = ['green'] + ['coral' if drop > 0 else 'lightblue' for drop in performance_drops]
 
@@ -353,9 +387,9 @@ def plot_absolute_performance_bar(all_results, output_dir='ablation_plots'):
 
     ax.set_xlabel('Model', fontsize=12)
     ax.set_ylabel('Mean Pearson Correlation (Subjects 1-71)', fontsize=12)
-    ax.set_title('Ablation Study: Absolute Performance', fontsize=14, fontweight='bold')
     ax.set_xticks(x)
-    ax.set_xticklabels(all_names, rotation=45, ha='right', fontsize=9)
+    display_names = [map_model_name(name) for name in all_aliases]
+    ax.set_xticklabels(display_names, rotation=0, ha='center', fontsize=9)
     ax.grid(True, alpha=0.3, axis='y')
 
     plt.tight_layout()
@@ -388,6 +422,9 @@ def plot_component_impact_bar(all_results, output_dir='ablation_plots'):
         print("警告: 未找到baseline模型（Exp-00），跳过组件影响柱状图生成")
         return None
 
+    # 颜色映射与小提琴图保持一致
+    color_map = build_color_map(all_results)
+
     # 提取数据
     baseline_mean = baseline_result['results']['group_1_71']['mean']
 
@@ -410,7 +447,12 @@ def plot_component_impact_bar(all_results, output_dir='ablation_plots'):
 
     # 相对性能下降柱状图
     x = np.arange(len(ablation_names))
-    bars = ax.bar(x, performance_drops, color='coral', alpha=0.8)
+    bar_colors = []
+    for idx, alias in enumerate(ablation_names):
+        default_color = VIOLIN_COLOR_PALETTE[idx % len(VIOLIN_COLOR_PALETTE)]
+        bar_colors.append(color_map.get(alias, default_color))
+
+    bars = ax.bar(x, performance_drops, color=bar_colors, alpha=0.85, edgecolor='black')
 
     # 在柱子上标注数值
     for bar, drop in zip(bars, performance_drops):
@@ -422,9 +464,9 @@ def plot_component_impact_bar(all_results, output_dir='ablation_plots'):
     ax.axhline(y=0, color='black', linestyle='--', linewidth=1, alpha=0.5)
     ax.set_xlabel('Ablated Component', fontsize=12)
     ax.set_ylabel('Performance Drop vs Baseline (%)', fontsize=12)
-    ax.set_title('Ablation Study: Impact of Each Component', fontsize=14, fontweight='bold')
     ax.set_xticks(x)
-    ax.set_xticklabels(ablation_names, rotation=45, ha='right', fontsize=9)
+    display_names = [map_model_name(name) for name in ablation_names]
+    ax.set_xticklabels(display_names, rotation=0, ha='center', fontsize=9)
     ax.grid(True, alpha=0.3, axis='y')
 
     plt.tight_layout()

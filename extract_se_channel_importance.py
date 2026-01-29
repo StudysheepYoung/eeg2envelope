@@ -190,7 +190,6 @@ def visualize_outputs(visual_dir: Path,
                                      cmap='coolwarm', contours=0)
         cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
         cbar.set_label('Relative importance (blue → red)', rotation=270, labelpad=14)
-        ax.set_title('Topographic importance')
         fig.tight_layout()
         fig.savefig(visual_dir / 'brain_topography.png', dpi=200)
         plt.close(fig)
