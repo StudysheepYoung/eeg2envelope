@@ -29,6 +29,15 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import argparse
 
+SHORT_LABEL_MAP = {
+    "Exp-00": "NC",
+    "Exp-01-无CNN": "w/o CNN",
+    "Exp-02-无SE": "w/o SE",
+    "Exp-03-无MLP_Head": "w/o MLP",
+    "Exp-04-无Gated_Residual": "w/o GFM",
+    "Exp-05-无LLRD": "w/o LLRD"
+}
+
 try:
     from ablation_plot_violin import X_AXIS_LABEL_MAP as VIOLIN_X_AXIS_LABEL_MAP
 except ImportError:
@@ -261,7 +270,7 @@ def plot_unified_boxplot(all_results, output_dir='ablation_plots'):
     ax.tick_params(axis='y', labelsize=14)
     for tick in ax.get_yticklabels():
         tick.set_fontweight('bold')
-    ax.set_ylabel('Pearson Correlation (per subject avg)', fontsize=20)
+    ax.set_ylabel('Pearson Correlation (per subject avg)', fontsize=18)
     ax.grid(True, alpha=0.3, axis='y')
 
     # 在每个箱线图上方标注平均值
@@ -432,10 +441,20 @@ def plot_absolute_performance_bar(all_results, output_dir='ablation_plots'):
         ax.text(bar.get_x() + bar.get_width()/2., height,
                 f'{mean_val:.4f}', ha='center', va='bottom', fontsize=14, fontweight='bold')
 
-    ax.set_ylabel('Mean Pearson Correlation', fontsize=14)
+    ax.set_ylabel('Mean Pearson Correlation', fontsize=18, fontweight='bold')
+    ax.tick_params(axis='y', labelsize=12)
+    for tick in ax.get_yticklabels():
+        tick.set_fontweight('bold')
     ax.set_xticks(x)
-    display_names = [map_model_name(name) for name in all_aliases]
-    ax.set_xticklabels(display_names, rotation=0, ha='center', fontsize=9)
+    display_names = [SHORT_LABEL_MAP.get(name, map_model_name(name)) for name in all_aliases]
+    ax.set_xticklabels(display_names, rotation=0, ha='center', fontsize=12, fontweight='bold')
+    legend_lines = []
+    for name, short in zip(all_aliases, display_names):
+        legend_lines.append(f"{short} = {map_model_name(name)}")
+    legend_text = 'Abbrev.:\n' + '\n'.join(legend_lines)
+    ax.text(0.98, 0.98, legend_text, transform=ax.transAxes,
+            ha='right', va='top', fontsize=11, fontweight='bold',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.85, edgecolor='gray'))
     ax.grid(True, alpha=0.3, axis='y')
 
     plt.tight_layout()
@@ -508,10 +527,18 @@ def plot_component_impact_bar(all_results, output_dir='ablation_plots'):
                 fontsize=18, fontweight='bold')
 
     ax.axhline(y=0, color='black', linestyle='--', linewidth=1, alpha=0.5)
-    ax.set_ylabel('Performance Drop vs Baseline (%)', fontsize=12)
+    ax.set_ylabel('Performance Drop vs Baseline (%)', fontsize=18, fontweight='bold')
+    ax.tick_params(axis='y', labelsize=12)
+    for tick in ax.get_yticklabels():
+        tick.set_fontweight('bold')
     ax.set_xticks(x)
-    display_names = [map_model_name(name) for name in ablation_names]
-    ax.set_xticklabels(display_names, rotation=0, ha='center', fontsize=9)
+    display_names = [SHORT_LABEL_MAP.get(name, map_model_name(name)) for name in ablation_names]
+    ax.set_xticklabels(display_names, rotation=0, ha='center', fontsize=18, fontweight='bold')
+    legend_lines = [f"{short} = {map_model_name(full)}" for full, short in zip(ablation_names, display_names)]
+    legend_text = 'Abbrev.:\n' + '\n'.join(legend_lines)
+    ax.text(0.98, 0.98, legend_text, transform=ax.transAxes,
+            ha='right', va='top', fontsize=14, fontweight='bold',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.85, edgecolor='gray'))
     ax.grid(True, alpha=0.3, axis='y')
 
     plt.tight_layout()

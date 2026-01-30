@@ -256,7 +256,7 @@ def annotate_significance(ax, positions, violin_data, model_names, baseline_mode
             color = color_map[baseline_model]
 
         ax.text(positions[idx], text_y, label, ha='center', va='bottom',
-                fontsize=20, color=color, fontweight='bold')
+                fontsize=18, color=color, fontweight='bold')
 
 def load_all_results(results_dir):
     """
@@ -402,7 +402,7 @@ def plot_violin_with_lines(all_results, output_dir='ablation_plots',
         display_names = [map_short_label(name) for name in model_names]
     else:
         display_names = [map_short_label(name) for name in model_names]
-    ax.set_xticklabels(display_names, rotation=0, ha='center', fontsize=20, fontweight='bold')
+    ax.set_xticklabels(display_names, rotation=0, ha='center', fontsize=18, fontweight='bold')
 
     legend_lines = []
     seen = set()
@@ -418,7 +418,7 @@ def plot_violin_with_lines(all_results, output_dir='ablation_plots',
         ax.text(0.02, 0.02, legend_text, transform=ax.transAxes,
                 ha='left', va='bottom', fontsize=14, fontweight='bold',
                 bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='gray'))
-    ax.set_ylabel('Pearson Correlation', fontsize=20, fontweight='bold')
+    ax.set_ylabel('Pearson Correlation', fontsize=18, fontweight='bold')
     ax.tick_params(axis='y', labelsize=14)
     for tick in ax.get_yticklabels():
         tick.set_fontweight('bold')
@@ -428,7 +428,7 @@ def plot_violin_with_lines(all_results, output_dir='ablation_plots',
     y_offset = max([max(data) for data in violin_data]) * 0.01
     for pos, mean_val in zip(positions, mean_values):
         ax.text(pos, mean_val + y_offset, f'{mean_val:.4f}',
-                ha='center', va='bottom', fontsize=20, fontweight='bold', color='black')
+                ha='center', va='bottom', fontsize=18, fontweight='bold', color='black')
 
     significance_results = None
     if sig_compare_to:
