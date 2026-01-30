@@ -40,8 +40,8 @@ import argparse
 # 例如: {"Exp-00": "Baseline", "Exp-01-无CNN": "无CNN"}
 X_AXIS_LABEL_MAP = {
     # "Exp-00": "4 conformer blocks",
-    # "Exp-00": "Composite Loss",
-    "Exp-00": "NeuroConformer", 
+    "Exp-00": "Composite Loss",
+    # "Exp-00": "NeuroConformer", 
     "Exp-01-无CNN": "w/o Convolution Module",
     "Exp-02-无SE": "w/o SE Block",
     "Exp-03-无MLP_Head": "w/o MLP Head",
@@ -53,6 +53,31 @@ X_AXIS_LABEL_MAP = {
     "Exp-10-只用HuberLoss": "Huber Loss only",
     "Exp-11-只用多层皮尔逊": "Multi-scale Pearson Correlation Loss only"
     }
+
+SHORT_LABEL_MAP = {
+    # 注意：显示“4-block”实验时，让短标签保持描述，不转换为 NC
+    # "Exp-00": "Ours",
+    # "Exp-00": "4-layer",
+    "Exp-00": "Our loss",
+    "Exp-01-无CNN": "w/o CNN",
+    "Exp-02-无SE": "w/o SE",
+    "Exp-03-无MLP_Head": "w/o MLP",
+    "Exp-04-无Gated_Residual": "w/o GFM",
+    "Exp-05-无LLRD": "w/o LLRD",
+    "Exp-07-2层Conformer": "2-layer",
+    "Exp-08-6层Conformer": "6-layer",
+    "Exp-09-8层Conformer": "8-layer",
+    "Exp-10-只用HuberLoss": "Huber",
+    "Exp-11-只用多层皮尔逊": "Multi-PC"
+}
+
+
+def map_short_label(alias):
+    if alias in SHORT_LABEL_MAP:
+        return SHORT_LABEL_MAP[alias]
+    if alias in X_AXIS_LABEL_MAP:
+        return X_AXIS_LABEL_MAP[alias]
+    return alias
 
 try:
     from scipy.stats import ttest_rel
@@ -374,18 +399,36 @@ def plot_violin_with_lines(all_results, output_dir='ablation_plots',
     # 设置标签
     ax.set_xticks(positions)
     if x_label_map:
-        display_names = [x_label_map.get(name, name) for name in model_names]
+        display_names = [map_short_label(name) for name in model_names]
     else:
-        display_names = model_names
-    ax.set_xticklabels(display_names, rotation=0, ha='center', fontsize=16)
-    ax.set_ylabel('Pearson Correlation', fontsize=20)
+        display_names = [map_short_label(name) for name in model_names]
+    ax.set_xticklabels(display_names, rotation=0, ha='center', fontsize=20, fontweight='bold')
+
+    legend_lines = []
+    seen = set()
+    for name, short_label in zip(model_names, display_names):
+        if short_label in seen:
+            continue
+        seen.add(short_label)
+        full_name = X_AXIS_LABEL_MAP.get(name, name)
+        legend_lines.append(f"{short_label} = {full_name}")
+
+    if legend_lines:
+        legend_text = 'Abbrev.:\n' + '\n'.join(legend_lines)
+        ax.text(0.02, 0.02, legend_text, transform=ax.transAxes,
+                ha='left', va='bottom', fontsize=14, fontweight='bold',
+                bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='gray'))
+    ax.set_ylabel('Pearson Correlation', fontsize=20, fontweight='bold')
+    ax.tick_params(axis='y', labelsize=14)
+    for tick in ax.get_yticklabels():
+        tick.set_fontweight('bold')
     ax.grid(True, alpha=0.3, axis='y')
 
     # 在每个小提琴图上方标注平均值
     y_offset = max([max(data) for data in violin_data]) * 0.01
     for pos, mean_val in zip(positions, mean_values):
         ax.text(pos, mean_val + y_offset, f'{mean_val:.4f}',
-                ha='center', va='bottom', fontsize=20, color='black', fontweight='bold')
+                ha='center', va='bottom', fontsize=20, fontweight='bold', color='black')
 
     significance_results = None
     if sig_compare_to:
