@@ -35,8 +35,19 @@ except ImportError:
     VIOLIN_X_AXIS_LABEL_MAP = {}
 
 # 与小提琴图脚本保持一致的颜色循环，确保不同图表间的配色统一
-VIOLIN_COLOR_PALETTE = ['#FF6B6B', '#FFB703', '#FB8500', '#219EBC', '#4ECDC4',
-                        '#8338EC', '#FF006E', '#06D6A0', '#118AB2', '#F94144']
+# 更柔和的科研配色（Material Design柔和色）
+VIOLIN_COLOR_PALETTE = [
+    '#C0392B',  # pure red for NeuroConformer/Baseline
+    '#6C8EBF',  # soft blue
+    '#8AB17D',  # muted green
+    '#A3A1D9',  # gentle lavender
+    '#D4A5A5',  # dusty rose
+    '#B5CDA3',  # sage
+    '#F1C27D',  # light sand
+    '#89C2D9',  # calm teal blue
+    '#C3B091',  # taupe
+    '#9D8189'   # mauve
+]
 
 
 def map_model_name(model_alias):
@@ -57,10 +68,25 @@ def build_color_map(all_results):
 
     sorted_indices = np.argsort(mean_values)[::-1]
     color_map = {}
-    for color_idx, idx in enumerate(sorted_indices):
+    remaining_palette = VIOLIN_COLOR_PALETTE.copy()
+    neuro_color = remaining_palette.pop(0)
+
+    # 优先为NeuroConformer（或Baseline/Exp-00）分配红色
+    special_aliases = {'exp-00', 'baseline', 'neuroconformer'}
+    for idx in sorted_indices:
         alias = model_aliases[idx]
-        color = VIOLIN_COLOR_PALETTE[color_idx % len(VIOLIN_COLOR_PALETTE)]
+        alias_key = alias.strip().lower()
+        if any(key in alias_key for key in special_aliases):
+            color_map[alias] = neuro_color
+
+    color_idx = 0
+    for idx in sorted_indices:
+        alias = model_aliases[idx]
+        if alias in color_map:
+            continue
+        color = remaining_palette[color_idx % len(remaining_palette)]
         color_map[alias] = color
+        color_idx += 1
 
     return color_map
 
@@ -185,6 +211,8 @@ def plot_unified_boxplot(all_results, output_dir='ablation_plots'):
     """为所有模型生成统一的箱线图"""
     os.makedirs(output_dir, exist_ok=True)
 
+    color_map = build_color_map(all_results)
+
     # 准备数据
     model_names = []
     data_1_71_list = []
@@ -208,24 +236,39 @@ def plot_unified_boxplot(all_results, output_dir='ablation_plots'):
 
     # 绘制箱线图
     positions = range(1, num_models + 1)
-    bp = ax.boxplot(data_1_71_list, positions=positions,
-                     patch_artist=True, showmeans=True,
-                     meanprops=dict(marker='D', markerfacecolor='red', markersize=8),
-                     boxprops=dict(facecolor='lightblue', alpha=0.7),
-                     medianprops=dict(color='darkblue', linewidth=2.5))
+    bp = ax.boxplot(
+        data_1_71_list,
+        positions=positions,
+        patch_artist=True,
+        showmeans=True,
+        meanprops=dict(marker='D', markerfacecolor='#E74C3C', markersize=8),
+        medianprops=dict(color='darkblue', linewidth=2.5)
+    )
+
+    fallback_colors = VIOLIN_COLOR_PALETTE
+    for idx, patch in enumerate(bp['boxes']):
+        alias = model_names[idx]
+        face_color = color_map.get(alias, fallback_colors[idx % len(fallback_colors)])
+        patch.set_facecolor(face_color)
+        patch.set_alpha(0.9)
+        patch.set_edgecolor('black')
+        patch.set_linewidth(1.2)
 
     # 设置标签
     ax.set_xticks(positions)
     display_names = [map_model_name(name) for name in model_names]
-    ax.set_xticklabels(display_names, rotation=0, ha='center', fontsize=10)
-    ax.set_ylabel('Pearson Correlation (per subject avg)', fontsize=14)
+    ax.set_xticklabels(display_names, rotation=0, ha='center', fontsize=18, fontweight='bold')
+    ax.tick_params(axis='y', labelsize=14)
+    for tick in ax.get_yticklabels():
+        tick.set_fontweight('bold')
+    ax.set_ylabel('Pearson Correlation (per subject avg)', fontsize=20)
     ax.grid(True, alpha=0.3, axis='y')
 
     # 在每个箱线图上方标注平均值
     for pos, mean_val in zip(positions, mean_values):
         y_offset = max([max(data) for data in data_1_71_list]) * 0.01
         ax.text(pos, mean_val + y_offset, f'{mean_val:.4f}',
-                ha='center', va='bottom', fontsize=9, color='darkred', fontweight='bold')
+                ha='center', va='bottom', fontsize=18, color='darkred', fontweight='bold')
 
     plt.tight_layout()
 
@@ -375,18 +418,21 @@ def plot_absolute_performance_bar(all_results, output_dir='ablation_plots'):
     x = np.arange(len(ablation_names) + 1)
     all_aliases = ['Exp-00'] + ablation_names
     all_means = [baseline_mean] + ablation_means
-    colors = ['green'] + ['coral' if drop > 0 else 'lightblue' for drop in performance_drops]
+    baseline_color = VIOLIN_COLOR_PALETTE[0]
+    bar_palette = VIOLIN_COLOR_PALETTE[1:]
+    colors = [baseline_color]
+    for idx in range(len(performance_drops)):
+        colors.append(bar_palette[idx % len(bar_palette)])
 
-    bars = ax.bar(x, all_means, color=colors, alpha=0.8)
+    bars = ax.bar(x, all_means, color=colors, alpha=0.9, edgecolor='black', linewidth=0.7)
 
     # 在柱子上标注数值
     for bar, mean_val in zip(bars, all_means):
         height = bar.get_height()
         ax.text(bar.get_x() + bar.get_width()/2., height,
-                f'{mean_val:.4f}', ha='center', va='bottom', fontsize=9, fontweight='bold')
+                f'{mean_val:.4f}', ha='center', va='bottom', fontsize=14, fontweight='bold')
 
-    ax.set_xlabel('Model', fontsize=12)
-    ax.set_ylabel('Mean Pearson Correlation (Subjects 1-71)', fontsize=12)
+    ax.set_ylabel('Mean Pearson Correlation', fontsize=14)
     ax.set_xticks(x)
     display_names = [map_model_name(name) for name in all_aliases]
     ax.set_xticklabels(display_names, rotation=0, ha='center', fontsize=9)
@@ -459,10 +505,9 @@ def plot_component_impact_bar(all_results, output_dir='ablation_plots'):
         height = bar.get_height()
         ax.text(bar.get_x() + bar.get_width()/2., height,
                 f'{drop:.2f}%', ha='center', va='bottom' if drop > 0 else 'top',
-                fontsize=9, fontweight='bold')
+                fontsize=18, fontweight='bold')
 
     ax.axhline(y=0, color='black', linestyle='--', linewidth=1, alpha=0.5)
-    ax.set_xlabel('Ablated Component', fontsize=12)
     ax.set_ylabel('Performance Drop vs Baseline (%)', fontsize=12)
     ax.set_xticks(x)
     display_names = [map_model_name(name) for name in ablation_names]

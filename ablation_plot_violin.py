@@ -39,6 +39,7 @@ import argparse
 # 修改此映射即可在代码中直接重命名横坐标标签
 # 例如: {"Exp-00": "Baseline", "Exp-01-无CNN": "无CNN"}
 X_AXIS_LABEL_MAP = {
+    # "Exp-00": "4 conformer blocks",
     # "Exp-00": "Composite Loss",
     "Exp-00": "NeuroConformer", 
     "Exp-01-无CNN": "w/o Convolution Module",
@@ -207,7 +208,7 @@ def perform_significance_tests(sorted_subject_data_dict, model_names, baseline_m
 
 
 def annotate_significance(ax, positions, violin_data, model_names, baseline_model,
-                          significance_results):
+                          significance_results, color_map=None):
     """在图上添加显著性标记"""
     if not significance_results or baseline_model not in model_names:
         return
@@ -216,7 +217,7 @@ def annotate_significance(ax, positions, violin_data, model_names, baseline_mode
     if not valid_max_values:
         return
 
-    y_offset = max(valid_max_values) * 0.04
+    y_offset = max(valid_max_values) * 0.01
 
     for idx, model in enumerate(model_names):
         if model == baseline_model or model not in significance_results:
@@ -225,8 +226,12 @@ def annotate_significance(ax, positions, violin_data, model_names, baseline_mode
         label = significance_results[model].get('label', 'n.s.')
         text_y = max(violin_data[idx]) + y_offset
 
+        color = '#C0392B'
+        if color_map and baseline_model in color_map:
+            color = color_map[baseline_model]
+
         ax.text(positions[idx], text_y, label, ha='center', va='bottom',
-                fontsize=12, color='purple', fontweight='bold')
+                fontsize=20, color=color, fontweight='bold')
 
 def load_all_results(results_dir):
     """
@@ -329,12 +334,13 @@ def plot_violin_with_lines(all_results, output_dir='ablation_plots',
                           widths=0.7)
 
     # 定义颜色列表（循环使用）
-    colors = ['#FF6B6B', '#FFB703', '#FB8500', '#219EBC', '#4ECDC4',
-              '#8338EC', '#FF006E', '#06D6A0', '#118AB2', '#F94144']
+    colors = ['#C0392B', '#6C8EBF', '#8AB17D', '#A3A1D9', '#D4A5A5',
+              '#B5CDA3', '#F1C27D', '#89C2D9', '#C3B091', '#9D8189']
+    color_map = {name: colors[idx % len(colors)] for idx, name in enumerate(model_names)}
 
     # 自定义小提琴图样式
     for idx, pc in enumerate(parts['bodies']):
-        color = colors[idx % len(colors)]
+        color = color_map[model_names[idx]]
         pc.set_facecolor(color)
         pc.set_alpha(0.9)
         pc.set_edgecolor('black')
@@ -371,15 +377,15 @@ def plot_violin_with_lines(all_results, output_dir='ablation_plots',
         display_names = [x_label_map.get(name, name) for name in model_names]
     else:
         display_names = model_names
-    ax.set_xticklabels(display_names, rotation=0, ha='center', fontsize=10)
-    ax.set_ylabel('Pearson Correlation', fontsize=14)
+    ax.set_xticklabels(display_names, rotation=0, ha='center', fontsize=16)
+    ax.set_ylabel('Pearson Correlation', fontsize=20)
     ax.grid(True, alpha=0.3, axis='y')
 
     # 在每个小提琴图上方标注平均值
     y_offset = max([max(data) for data in violin_data]) * 0.01
     for pos, mean_val in zip(positions, mean_values):
         ax.text(pos, mean_val + y_offset, f'{mean_val:.4f}',
-                ha='center', va='bottom', fontsize=9, color='darkred', fontweight='bold')
+                ha='center', va='bottom', fontsize=20, color='black', fontweight='bold')
 
     significance_results = None
     if sig_compare_to:
@@ -387,7 +393,7 @@ def plot_violin_with_lines(all_results, output_dir='ablation_plots',
         significance_results = perform_significance_tests(
             sorted_subject_data_dict, model_names, sig_compare_to, default_sig_levels)
         annotate_significance(ax, positions, violin_data, model_names,
-                              sig_compare_to, significance_results)
+                              sig_compare_to, significance_results, color_map)
 
     plt.tight_layout()
 
